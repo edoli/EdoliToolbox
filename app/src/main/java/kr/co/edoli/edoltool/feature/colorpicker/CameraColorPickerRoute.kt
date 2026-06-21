@@ -1,10 +1,16 @@
 package kr.co.edoli.edoltool.feature.colorpicker
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.net.Uri
 import android.view.ViewGroup
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -16,6 +22,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -26,10 +33,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Image
@@ -68,9 +78,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -79,6 +91,8 @@ import kotlinx.coroutines.withContext
 import kr.co.edoli.edoltool.util.PickedColor
 import kr.co.edoli.edoltool.util.colorToCompose
 import kr.co.edoli.edoltool.util.decodeBitmapFromUri
+import java.io.File
+import java.io.FileOutputStream
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -141,6 +155,7 @@ fun CameraColorPickerRoute(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -168,6 +183,7 @@ fun CameraColorPickerRoute(
                     )
                 },
             )
+            ColorHistoryCard()
         }
     }
 }
@@ -222,18 +238,36 @@ private fun PickerModeCard(
 
 @Composable
 fun CameraColorPickerFullscreenRoute(onExit: () -> Unit) {
+    val context = LocalContext.current
     var pickedColor by remember { mutableStateOf<PickedColor?>(null) }
     var liveMode by remember { mutableStateOf(true) }
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var targetOffset by remember { mutableStateOf<Offset?>(null) }
     val density = LocalDensity.current
     val edgeWidthPx = with(density) { 32.dp.toPx() }
     val exitDistancePx = with(density) { 96.dp.toPx() }
+    val crosshairHalfPx = with(density) { 22.dp.toPx() }
 
     BackHandler(onBack = onExit)
 
-    LaunchedEffect(liveMode, previewView) {
+    LaunchedEffect(viewportSize) {
+        if (viewportSize.width > 0 && viewportSize.height > 0 && targetOffset == null) {
+            targetOffset = Offset(
+                x = viewportSize.width / 2f,
+                y = viewportSize.height / 2f,
+            )
+        }
+    }
+
+    LaunchedEffect(liveMode, previewView, targetOffset) {
         while (liveMode) {
-            previewView?.sampleCenterBitmap()?.let { pickedColor = it }
+            val target = targetOffset
+            if (target != null) {
+                previewView?.sampleBitmapAt(target)
+                    ?.copy(source = "카메라 실시간")
+                    ?.let { pickedColor = it }
+            }
             delay(120)
         }
     }
@@ -242,6 +276,7 @@ fun CameraColorPickerFullscreenRoute(onExit: () -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .background(androidx.compose.ui.graphics.Color.Black)
+            .onSizeChanged { viewportSize = it }
             .pointerInput(onExit, edgeWidthPx, exitDistancePx) {
                 detectLeftEdgeExitGesture(
                     edgeWidthPx = edgeWidthPx,
@@ -253,9 +288,20 @@ fun CameraColorPickerFullscreenRoute(onExit: () -> Unit) {
         CameraPreviewPicker(
             modifier = Modifier.fillMaxSize(),
             onPreviewReady = { previewView = it },
-            onColorPicked = {
-                liveMode = false
-                pickedColor = it.copy(source = "카메라 고정")
+            onTargetChanged = { offset ->
+                targetOffset = offset
+                if (!liveMode) {
+                    previewView?.sampleBitmapAt(offset)
+                        ?.copy(source = "카메라 고정")
+                        ?.let { pickedColor = it }
+                }
+            },
+            onColorPicked = { offset ->
+                if (!liveMode) {
+                    previewView?.sampleBitmapAt(offset)
+                        ?.copy(source = "카메라 고정")
+                        ?.let { pickedColor = it }
+                }
             },
         )
         FullscreenColorOverlay(
@@ -264,14 +310,42 @@ fun CameraColorPickerFullscreenRoute(onExit: () -> Unit) {
             onToggleMode = {
                 liveMode = !liveMode
                 if (liveMode) {
-                    previewView?.sampleCenterBitmap()?.let { pickedColor = it }
+                    targetOffset?.let { target ->
+                        previewView?.sampleBitmapAt(target)
+                            ?.copy(source = "카메라 실시간")
+                            ?.let { pickedColor = it }
+                    }
+                } else {
+                    targetOffset?.let { target ->
+                        previewView?.sampleBitmapAt(target)
+                            ?.copy(source = "카메라 고정")
+                            ?.let { pickedColor = it }
+                    }
                 }
+            },
+            onCopyText = { label, value -> copyText(context, label, value) },
+            onCopyColorImage = { color -> copyColorRectImage(context, color) },
+            onSave = { color ->
+                ColorHistoryStore.save(color)
+                Toast.makeText(context, "색상을 저장했습니다.", Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
-        Crosshair(
-            modifier = Modifier.align(Alignment.Center),
-        )
+        val target = targetOffset
+        if (target == null) {
+            Crosshair(
+                modifier = Modifier.align(Alignment.Center),
+            )
+        } else {
+            Crosshair(
+                modifier = Modifier.offset {
+                    IntOffset(
+                        x = (target.x - crosshairHalfPx).roundToInt(),
+                        y = (target.y - crosshairHalfPx).roundToInt(),
+                    )
+                },
+            )
+        }
     }
 }
 
@@ -284,9 +358,11 @@ fun ImageColorPickerFullscreenRoute(
     var pickedColor by remember { mutableStateOf<PickedColor?>(null) }
     var imageSize by remember { mutableStateOf(IntSize.Zero) }
     var bitmap by remember(imageUri) { mutableStateOf<Bitmap?>(null) }
+    var targetOffset by remember { mutableStateOf<Offset?>(null) }
     val density = LocalDensity.current
     val edgeWidthPx = with(density) { 32.dp.toPx() }
     val exitDistancePx = with(density) { 96.dp.toPx() }
+    val crosshairHalfPx = with(density) { 22.dp.toPx() }
 
     DisposableEffect(imageUri) {
         onDispose {
@@ -301,6 +377,18 @@ fun ImageColorPickerFullscreenRoute(
             withContext(Dispatchers.IO) {
                 decodeBitmapFromUri(context, imageUri)
             }
+        }
+    }
+
+    LaunchedEffect(bitmap, imageSize) {
+        val image = bitmap
+        if (image != null && imageSize.width > 0 && imageSize.height > 0 && targetOffset == null) {
+            val center = Offset(
+                x = imageSize.width / 2f,
+                y = imageSize.height / 2f,
+            )
+            targetOffset = center
+            sampleImageBitmap(image, imageSize, center)?.let { pickedColor = it }
         }
     }
 
@@ -320,6 +408,7 @@ fun ImageColorPickerFullscreenRoute(
             }
             .pointerInput(bitmap, imageSize) {
                 detectTapGestures { offset ->
+                    targetOffset = offset
                     bitmap?.let { image ->
                         sampleImageBitmap(image, imageSize, offset)?.let { pickedColor = it }
                     }
@@ -344,8 +433,25 @@ fun ImageColorPickerFullscreenRoute(
         }
         FullscreenColorOverlay(
             pickedColor = pickedColor,
+            onCopyText = { label, value -> copyText(context, label, value) },
+            onCopyColorImage = { color -> copyColorRectImage(context, color) },
+            onSave = { color ->
+                ColorHistoryStore.save(color)
+                Toast.makeText(context, "색상을 저장했습니다.", Toast.LENGTH_SHORT).show()
+            },
             modifier = Modifier.align(Alignment.BottomCenter),
         )
+        val target = targetOffset
+        if (target != null) {
+            Crosshair(
+                modifier = Modifier.offset {
+                    IntOffset(
+                        x = (target.x - crosshairHalfPx).roundToInt(),
+                        y = (target.y - crosshairHalfPx).roundToInt(),
+                    )
+                },
+            )
+        }
     }
 }
 
@@ -353,7 +459,8 @@ fun ImageColorPickerFullscreenRoute(
 private fun CameraPreviewPicker(
     modifier: Modifier = Modifier,
     onPreviewReady: (PreviewView) -> Unit,
-    onColorPicked: (PickedColor) -> Unit,
+    onTargetChanged: (Offset) -> Unit,
+    onColorPicked: (Offset) -> Unit,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -392,7 +499,8 @@ private fun CameraPreviewPicker(
             .background(androidx.compose.ui.graphics.Color.Black)
             .pointerInput(previewView) {
                 detectTapGestures { offset ->
-                    previewView?.sampleBitmapAt(offset)?.let(onColorPicked)
+                    onTargetChanged(offset)
+                    onColorPicked(offset)
                 }
             },
     ) {
@@ -418,6 +526,9 @@ private fun FullscreenColorOverlay(
     pickedColor: PickedColor?,
     liveMode: Boolean? = null,
     onToggleMode: (() -> Unit)? = null,
+    onCopyText: (String, String) -> Unit,
+    onCopyColorImage: (PickedColor) -> Unit,
+    onSave: (PickedColor) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (pickedColor == null) {
@@ -455,6 +566,7 @@ private fun FullscreenColorOverlay(
                 Box(
                     modifier = Modifier
                         .size(56.dp)
+                        .clickable { onCopyColorImage(pickedColor) }
                         .background(colorToCompose(pickedColor.colorInt), MaterialTheme.shapes.medium)
                         .border(
                             width = 1.dp,
@@ -469,22 +581,34 @@ private fun FullscreenColorOverlay(
                     Text(
                         text = pickedColor.hexRgb,
                         color = androidx.compose.ui.graphics.Color.White,
+                        modifier = Modifier.clickable {
+                            onCopyText("HEX", pickedColor.hexRgb)
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                     )
                     Text(
-                        text = "RGB ${pickedColor.red}, ${pickedColor.green}, ${pickedColor.blue}",
+                        text = pickedColor.rgbText,
                         color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f),
+                        modifier = Modifier.clickable {
+                            onCopyText("RGB", pickedColor.rgbText)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                     )
                     Text(
-                        text = "HSV ${pickedColor.hsv[0].roundToInt()}°, ${(pickedColor.hsv[1] * 100).roundToInt()}%, ${(pickedColor.hsv[2] * 100).roundToInt()}%",
+                        text = pickedColor.hsvText,
                         color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.92f),
+                        modifier = Modifier.clickable {
+                            onCopyText("HSV", pickedColor.hsvText)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                     )
+                }
+                Button(onClick = { onSave(pickedColor) }) {
+                    Text("저장")
                 }
             }
             if (liveMode != null && onToggleMode != null) {
@@ -495,6 +619,69 @@ private fun FullscreenColorOverlay(
                     Text(if (liveMode) "실시간 모드" else "고정 모드")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ColorHistoryCard() {
+    val history = ColorHistoryStore.history
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "색상 히스토리",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            if (history.isEmpty()) {
+                Text(
+                    text = "카메라나 이미지에서 색상을 저장하면 여기에 표시됩니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                history.forEach { savedColor ->
+                    SavedColorRow(savedColor = savedColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedColorRow(savedColor: SavedColor) {
+    val pickedColor = savedColor.pickedColor
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .background(colorToCompose(pickedColor.colorInt), MaterialTheme.shapes.small)
+                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = pickedColor.hexRgb,
+                style = MaterialTheme.typography.bodyLarge,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "${pickedColor.source} · ${savedColor.savedAtText}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -529,13 +716,52 @@ private fun PreviewView.sampleBitmapAt(offset: Offset): PickedColor? {
     )
 }
 
-private fun PreviewView.sampleCenterBitmap(): PickedColor? {
-    return sampleBitmapAt(
-        Offset(
-            x = width / 2f,
-            y = height / 2f,
-        ),
-    )?.copy(source = "카메라 실시간")
+private val PickedColor.rgbText: String
+    get() = "RGB $red, $green, $blue"
+
+private val PickedColor.hsvText: String
+    get() = "HSV ${hsv[0].roundToInt()}°, ${(hsv[1] * 100).roundToInt()}%, ${(hsv[2] * 100).roundToInt()}%"
+
+private fun copyText(
+    context: Context,
+    label: String,
+    value: String,
+) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, value))
+    Toast.makeText(context, "$label 복사됨", Toast.LENGTH_SHORT).show()
+}
+
+private fun copyColorRectImage(
+    context: Context,
+    pickedColor: PickedColor,
+) {
+    val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
+    Canvas(bitmap).drawRect(
+        0f,
+        0f,
+        256f,
+        256f,
+        Paint().apply {
+            color = pickedColor.colorInt
+            style = Paint.Style.FILL
+        },
+    )
+    val directory = File(context.cacheDir, "color_clip").apply { mkdirs() }
+    val file = File(directory, "color_rect.png")
+    FileOutputStream(file).use { output ->
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+    }
+    bitmap.recycle()
+
+    val uri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.fileprovider",
+        file,
+    )
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "Color ${pickedColor.hexRgb}", uri))
+    Toast.makeText(context, "색상 이미지 복사됨", Toast.LENGTH_SHORT).show()
 }
 
 private fun sampleImageBitmap(
