@@ -196,6 +196,11 @@ private fun ClipboardItemCard(
 @Composable
 private fun HtmlPreviewSection(html: String) {
     val context = LocalContext.current
+    val embeddedContentChecks by produceState<List<HtmlContentUriCheck>>(initialValue = emptyList(), html) {
+        value = withContext(Dispatchers.IO) {
+            analyzeHtmlContentUris(context.applicationContext, html)
+        }
+    }
     Text(
         text = "HTML Preview",
         style = MaterialTheme.typography.titleSmall,
@@ -241,6 +246,33 @@ private fun HtmlPreviewSection(html: String) {
             },
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+    if (embeddedContentChecks.isNotEmpty()) {
+        HtmlContentUriSection(checks = embeddedContentChecks)
+    }
+}
+
+@Composable
+private fun HtmlContentUriSection(checks: List<HtmlContentUriCheck>) {
+    Text(
+        text = "HTML content URI",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+    )
+    checks.forEachIndexed { index, check ->
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Content ${index + 1}",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            DetailRow("URI", check.uri.toString())
+            DetailRow("MIME", check.mimeType ?: "알 수 없음")
+            DetailRow("Stream open", if (check.canOpenStream) "가능" else "실패")
+            check.errorMessage?.let { error ->
+                DetailRow("Error", error)
+            }
+        }
     }
 }
 
@@ -434,6 +466,13 @@ private data class ClipboardItemSnapshot(
     val intentSummary: String?,
 )
 
+private data class HtmlContentUriCheck(
+    val uri: Uri,
+    val mimeType: String?,
+    val canOpenStream: Boolean,
+    val errorMessage: String?,
+)
+
 private data class UriMetadata(
     val displayName: String?,
     val sizeBytes: Long?,
@@ -450,6 +489,44 @@ private data class TextAnalysis(
     val looksLikeJson: Boolean,
     val looksLikeBase64: Boolean,
 )
+
+private val HtmlContentUriRegex = Regex("""content://[^\s<>"']+""")
+
+private fun analyzeHtmlContentUris(
+    context: Context,
+    html: String,
+): List<HtmlContentUriCheck> {
+    return HtmlContentUriRegex.findAll(html)
+        .map { match -> unescapeHtmlAttribute(match.value) }
+        .distinct()
+        .map { rawUri ->
+            val uri = Uri.parse(rawUri)
+            val mimeType = runCatching { context.contentResolver.getType(uri) }.getOrNull()
+            val streamResult = runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    stream.read()
+                } ?: error("ContentResolver returned null stream")
+            }
+
+            HtmlContentUriCheck(
+                uri = uri,
+                mimeType = mimeType,
+                canOpenStream = streamResult.isSuccess,
+                errorMessage = streamResult.exceptionOrNull()?.let { throwable ->
+                    "${throwable::class.java.simpleName}: ${throwable.message.orEmpty()}"
+                },
+            )
+        }
+        .toList()
+}
+
+private fun unescapeHtmlAttribute(value: String): String {
+    return value
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&apos;", "'")
+}
 
 private fun readClipboardSnapshot(context: Context): ClipboardSnapshot {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
