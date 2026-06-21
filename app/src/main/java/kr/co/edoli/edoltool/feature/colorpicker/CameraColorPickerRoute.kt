@@ -435,9 +435,11 @@ fun ImageColorPickerFullscreenRoute(
             }
             .pointerInput(bitmap, imageSize) {
                 detectTapGestures { offset ->
-                    targetOffset = offset
                     bitmap?.let { image ->
-                        sampleImageBitmap(image, imageSize, offset)?.let { pickedColor = it }
+                        sampleImageBitmap(image, imageSize, offset)?.let {
+                            targetOffset = offset
+                            pickedColor = it
+                        }
                     }
                 }
             },
@@ -471,12 +473,14 @@ fun ImageColorPickerFullscreenRoute(
         val target = targetOffset
         if (target != null) {
             Crosshair(
-                modifier = Modifier.offset {
-                    IntOffset(
-                        x = (target.x - crosshairHalfPx).roundToInt(),
-                        y = (target.y - crosshairHalfPx).roundToInt(),
-                    )
-                },
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .offset {
+                        IntOffset(
+                            x = (target.x - crosshairHalfPx).roundToInt(),
+                            y = (target.y - crosshairHalfPx).roundToInt(),
+                        )
+                    },
             )
         }
     }
