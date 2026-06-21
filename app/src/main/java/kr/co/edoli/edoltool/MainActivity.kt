@@ -10,9 +10,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kr.co.edoli.edoltool.feature.clipboard.ClipboardAnalyzerRoute
+import kr.co.edoli.edoltool.feature.colorpicker.CameraColorPickerFullscreenRoute
+import kr.co.edoli.edoltool.feature.colorpicker.CameraColorPickerRoute
+import kr.co.edoli.edoltool.feature.colorpicker.ImageColorPickerFullscreenRoute
 import kr.co.edoli.edoltool.feature.home.HomeRoute
 import kr.co.edoli.edoltool.feature.home.ToolDetailRoute
 import kr.co.edoli.edoltool.feature.home.toolCatalog
+import kr.co.edoli.edoltool.feature.solidcolor.SolidColorRoute
 import kr.co.edoli.edoltool.ui.theme.EdolAndroidToolTheme
 
 class MainActivity : ComponentActivity() {
@@ -49,10 +54,51 @@ private fun EdolAndroidToolApp() {
             arguments = listOf(navArgument("toolId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val toolId = backStackEntry.arguments?.getString("toolId").orEmpty()
-            val tool = toolCatalog.firstOrNull { it.id == toolId }
-            ToolDetailRoute(
-                tool = tool,
-                onBackClick = navController::popBackStack,
+            when (toolId) {
+                "camera_color_picker" -> CameraColorPickerRoute(
+                    onBackClick = navController::popBackStack,
+                    onOpenCamera = {
+                        navController.navigate("camera_color_picker/camera")
+                    },
+                    onOpenImage = { uri ->
+                        navController.currentBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("selected_image_uri", uri)
+                        navController.navigate("camera_color_picker/image")
+                    },
+                )
+
+                "solid_color_screen" -> SolidColorRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
+                "clipboard_analyzer" -> ClipboardAnalyzerRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
+                else -> {
+                    val tool = toolCatalog.firstOrNull { it.id == toolId }
+                    ToolDetailRoute(
+                        tool = tool,
+                        onBackClick = navController::popBackStack,
+                    )
+                }
+            }
+        }
+
+        composable("camera_color_picker/camera") {
+            CameraColorPickerFullscreenRoute(
+                onExit = navController::popBackStack,
+            )
+        }
+
+        composable("camera_color_picker/image") {
+            val imageUri = navController.previousBackStackEntry
+                ?.savedStateHandle
+                ?.get<android.net.Uri>("selected_image_uri")
+            ImageColorPickerFullscreenRoute(
+                imageUri = imageUri,
+                onExit = navController::popBackStack,
             )
         }
     }
