@@ -7,8 +7,14 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.view.ViewGroup
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +56,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kr.co.edoli.edolitool.util.decodeBitmapBounds
@@ -165,6 +172,7 @@ private fun ClipboardItemCard(
         }
         item.htmlText?.let { html ->
             TextSection(title = "HTML", value = html)
+            HtmlPreviewSection(html = html)
         }
         item.uri?.let { uri ->
             UriSection(
@@ -181,6 +189,90 @@ private fun ClipboardItemCard(
                 text = "분석할 수 있는 공개 필드가 없습니다.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun HtmlPreviewSection(html: String) {
+    val context = LocalContext.current
+    Text(
+        text = "HTML Preview",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+    )
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 160.dp, max = 420.dp)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.small),
+    ) {
+        AndroidView(
+            factory = { context ->
+                WebView(context).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                    )
+                    settings.javaScriptEnabled = false
+                    settings.allowContentAccess = true
+                    settings.allowFileAccess = false
+                    settings.loadsImagesAutomatically = true
+                    settings.defaultTextEncodingName = "utf-8"
+                    webViewClient = ClipboardHtmlWebViewClient(context)
+                    loadDataWithBaseURL(
+                        null,
+                        html,
+                        "text/html",
+                        "UTF-8",
+                        null,
+                    )
+                }
+            },
+            update = { webView ->
+                webView.loadDataWithBaseURL(
+                    null,
+                    html,
+                    "text/html",
+                    "UTF-8",
+                    null,
+                )
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+private class ClipboardHtmlWebViewClient(
+    private val context: Context,
+) : WebViewClient() {
+    override fun shouldInterceptRequest(
+        view: WebView?,
+        request: WebResourceRequest?,
+    ): WebResourceResponse? {
+        val uri = request?.url ?: return null
+        if (uri.scheme != "content") return null
+
+        return runCatching {
+            val mimeType = context.contentResolver.getType(uri) ?: guessMimeType(uri.toString())
+            val stream = context.contentResolver.openInputStream(uri) ?: return null
+            WebResourceResponse(
+                mimeType,
+                "UTF-8",
+                stream,
+            )
+        }.getOrNull()
+    }
+
+    private fun guessMimeType(value: String): String {
+        val lower = value.lowercase()
+        return when {
+            lower.endsWith(".png") -> "image/png"
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            lower.endsWith(".webp") -> "image/webp"
+            lower.endsWith(".gif") -> "image/gif"
+            else -> "application/octet-stream"
         }
     }
 }
