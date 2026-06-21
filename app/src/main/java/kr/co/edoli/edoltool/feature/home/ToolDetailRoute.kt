@@ -28,7 +28,7 @@ import kr.co.edoli.edoltool.model.ToolItem
 @Composable
 fun ToolDetailRoute(
     tool: ToolItem?,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -38,44 +38,44 @@ fun ToolDetailRoute(
                     Text(
                         text = tool?.name ?: "도구 없음",
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "뒤로"
+                            contentDescription = "뒤로",
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
             )
-        }
+        },
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             ToolIcon(
                 icon = tool?.icon ?: Icons.Rounded.Build,
                 tint = tool?.tint ?: MaterialTheme.colorScheme.primary,
-                contentDescription = null
+                contentDescription = null,
             )
             Text(
                 text = tool?.description ?: "요청한 도구를 찾을 수 없습니다.",
                 style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = "여기에 실제 도구 화면을 하나씩 연결하면 됩니다.",
                 style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

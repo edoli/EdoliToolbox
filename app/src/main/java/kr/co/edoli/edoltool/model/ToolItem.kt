@@ -9,7 +9,7 @@ data class ToolItem(
     val description: String,
     val icon: ImageVector,
     val tint: Color,
-    val status: ToolStatus = ToolStatus.Planned
+    val status: ToolStatus = ToolStatus.Planned,
 )
 
 enum class ToolStatus {

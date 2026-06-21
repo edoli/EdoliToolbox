@@ -18,7 +18,7 @@ private val LightColorScheme = lightColorScheme(
     surfaceContainer = Color(0xFFFFFFFF),
     surfaceVariant = Color(0xFFE7E5E4),
     onSurface = Color(0xFF171717),
-    onSurfaceVariant = Color(0xFF57534E)
+    onSurfaceVariant = Color(0xFF57534E),
 )
 
 private val DarkColorScheme = darkColorScheme(
@@ -31,17 +31,17 @@ private val DarkColorScheme = darkColorScheme(
     surfaceContainer = Color(0xFF292524),
     surfaceVariant = Color(0xFF44403C),
     onSurface = Color(0xFFF5F5F4),
-    onSurfaceVariant = Color(0xFFD6D3D1)
+    onSurfaceVariant = Color(0xFFD6D3D1),
 )
 
 @Composable
 fun EdolAndroidToolTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
+    content: @Composable () -> Unit,
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
         typography = Typography(),
-        content = content
+        content = content,
     )
 }

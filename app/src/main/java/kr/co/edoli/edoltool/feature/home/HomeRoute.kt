@@ -38,7 +38,7 @@ import kr.co.edoli.edoltool.ui.theme.EdolAndroidToolTheme
 @Composable
 fun HomeRoute(
     tools: List<ToolItem>,
-    onToolClick: (ToolItem) -> Unit
+    onToolClick: (ToolItem) -> Unit,
 ) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
@@ -48,14 +48,14 @@ fun HomeRoute(
                     Text(
                         text = "Edol Android Tool",
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                )
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
             )
-        }
+        },
     ) { innerPadding ->
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 156.dp),
@@ -64,15 +64,15 @@ fun HomeRoute(
                 .padding(innerPadding),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(
                 items = tools,
-                key = { it.id }
+                key = { it.id },
             ) { tool ->
                 ToolCard(
                     tool = tool,
-                    onClick = { onToolClick(tool) }
+                    onClick = { onToolClick(tool) },
                 )
             }
         }
@@ -82,31 +82,31 @@ fun HomeRoute(
 @Composable
 private fun ToolCard(
     tool: ToolItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer
-        )
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
     ) {
         androidx.compose.foundation.layout.Column(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ToolIcon(
                 icon = tool.icon,
                 tint = tool.tint,
-                contentDescription = tool.name
+                contentDescription = tool.name,
             )
             Text(
                 text = tool.name,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = tool.description,
@@ -114,7 +114,7 @@ private fun ToolCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 minLines = 2,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -125,20 +125,20 @@ internal fun ToolIcon(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tint: Color,
     contentDescription: String?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         modifier = modifier
             .size(48.dp)
             .clip(MaterialTheme.shapes.medium),
         color = tint.copy(alpha = 0.14f),
-        contentColor = tint
+        contentColor = tint,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                modifier = Modifier.size(26.dp)
+                modifier = Modifier.size(26.dp),
             )
         }
     }
@@ -150,7 +150,7 @@ private fun HomeRoutePreview() {
     EdolAndroidToolTheme {
         HomeRoute(
             tools = toolCatalog,
-            onToolClick = {}
+            onToolClick = {},
         )
     }
 }

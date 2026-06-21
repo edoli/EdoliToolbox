@@ -33,26 +33,26 @@ private fun EdolAndroidToolApp() {
 
     NavHost(
         navController = navController,
-        startDestination = "home"
+        startDestination = "home",
     ) {
         composable("home") {
             HomeRoute(
                 tools = toolCatalog,
                 onToolClick = { tool ->
                     navController.navigate("tool/${tool.id}")
-                }
+                },
             )
         }
 
         composable(
             route = "tool/{toolId}",
-            arguments = listOf(navArgument("toolId") { type = NavType.StringType })
+            arguments = listOf(navArgument("toolId") { type = NavType.StringType }),
         ) { backStackEntry ->
             val toolId = backStackEntry.arguments?.getString("toolId").orEmpty()
             val tool = toolCatalog.firstOrNull { it.id == toolId }
             ToolDetailRoute(
                 tool = tool,
-                onBackClick = navController::popBackStack
+                onBackClick = navController::popBackStack,
             )
         }
     }
