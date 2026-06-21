@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.ui.theme
+package kr.co.edoli.edolitool.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -35,7 +35,7 @@ private val DarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun EdolAndroidToolTheme(
+fun EdoliToolboxTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {

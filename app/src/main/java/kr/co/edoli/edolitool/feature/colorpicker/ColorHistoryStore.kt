@@ -1,8 +1,8 @@
-package kr.co.edoli.edoltool.feature.colorpicker
+package kr.co.edoli.edolitool.feature.colorpicker
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
-import kr.co.edoli.edoltool.util.PickedColor
+import kr.co.edoli.edolitool.util.PickedColor
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat

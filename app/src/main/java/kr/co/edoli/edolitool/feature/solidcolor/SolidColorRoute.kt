@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.feature.solidcolor
+package kr.co.edoli.edolitool.feature.solidcolor
 
 import android.app.Activity
 import android.graphics.Color
@@ -55,10 +55,10 @@ import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import kr.co.edoli.edoltool.util.colorToCompose
-import kr.co.edoli.edoltool.util.commonNamedColors
-import kr.co.edoli.edoltool.util.findActivity
-import kr.co.edoli.edoltool.util.parseColorQuery
+import kr.co.edoli.edolitool.util.colorToCompose
+import kr.co.edoli.edolitool.util.commonNamedColors
+import kr.co.edoli.edolitool.util.findActivity
+import kr.co.edoli.edolitool.util.parseColorQuery
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

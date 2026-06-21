@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.util
+package kr.co.edoli.edolitool.util
 
 import android.graphics.Color
 import kotlin.math.max

@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.feature.home
+package kr.co.edoli.edolitool.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,7 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kr.co.edoli.edoltool.model.ToolItem
+import kr.co.edoli.edolitool.model.ToolItem
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

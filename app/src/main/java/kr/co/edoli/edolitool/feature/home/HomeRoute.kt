@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.feature.home
+package kr.co.edoli.edolitool.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,8 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import kr.co.edoli.edoltool.model.ToolItem
-import kr.co.edoli.edoltool.ui.theme.EdolAndroidToolTheme
+import kr.co.edoli.edolitool.model.ToolItem
+import kr.co.edoli.edolitool.ui.theme.EdoliToolboxTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,7 +46,7 @@ fun HomeRoute(
             LargeTopAppBar(
                 title = {
                     Text(
-                        text = "Edol Android Tool",
+                        text = "Edoli Toolbox",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -147,7 +147,7 @@ internal fun ToolIcon(
 @Preview(showBackground = true, widthDp = 360)
 @Composable
 private fun HomeRoutePreview() {
-    EdolAndroidToolTheme {
+    EdoliToolboxTheme {
         HomeRoute(
             tools = toolCatalog,
             onToolClick = {},

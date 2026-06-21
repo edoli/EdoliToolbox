@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.feature.clipboard
+package kr.co.edoli.edolitool.feature.clipboard
 
 import android.content.ClipData
 import android.content.ClipDescription
@@ -52,8 +52,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kr.co.edoli.edoltool.util.decodeBitmapBounds
-import kr.co.edoli.edoltool.util.decodeBitmapFromUri
+import kr.co.edoli.edolitool.util.decodeBitmapBounds
+import kr.co.edoli.edolitool.util.decodeBitmapFromUri
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

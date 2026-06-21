@@ -4,11 +4,11 @@ plugins {
 }
 
 android {
-    namespace = "kr.co.edoli.edoltool"
+    namespace = "kr.co.edoli.edolitool"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "kr.co.edoli.edoltool"
+        applicationId = "kr.co.edoli.edolitool"
         minSdk = 26
         targetSdk = 37
         versionCode = 1

@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool
+package kr.co.edoli.edolitool
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -10,30 +10,30 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import kr.co.edoli.edoltool.feature.clipboard.ClipboardAnalyzerRoute
-import kr.co.edoli.edoltool.feature.colorpicker.CameraColorPickerFullscreenRoute
-import kr.co.edoli.edoltool.feature.colorpicker.CameraColorPickerRoute
-import kr.co.edoli.edoltool.feature.colorpicker.ImageColorPickerFullscreenRoute
-import kr.co.edoli.edoltool.feature.home.HomeRoute
-import kr.co.edoli.edoltool.feature.home.ToolDetailRoute
-import kr.co.edoli.edoltool.feature.home.toolCatalog
-import kr.co.edoli.edoltool.feature.solidcolor.SolidColorRoute
-import kr.co.edoli.edoltool.ui.theme.EdolAndroidToolTheme
+import kr.co.edoli.edolitool.feature.clipboard.ClipboardAnalyzerRoute
+import kr.co.edoli.edolitool.feature.colorpicker.CameraColorPickerFullscreenRoute
+import kr.co.edoli.edolitool.feature.colorpicker.CameraColorPickerRoute
+import kr.co.edoli.edolitool.feature.colorpicker.ImageColorPickerFullscreenRoute
+import kr.co.edoli.edolitool.feature.home.HomeRoute
+import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
+import kr.co.edoli.edolitool.feature.home.toolCatalog
+import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
+import kr.co.edoli.edolitool.ui.theme.EdoliToolboxTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            EdolAndroidToolTheme {
-                EdolAndroidToolApp()
+            EdoliToolboxTheme {
+                EdoliToolboxApp()
             }
         }
     }
 }
 
 @Composable
-private fun EdolAndroidToolApp() {
+private fun EdoliToolboxApp() {
     val navController = rememberNavController()
 
     NavHost(

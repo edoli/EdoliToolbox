@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.util
+package kr.co.edoli.edolitool.util
 
 import android.app.Activity
 import android.content.Context

@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.util
+package kr.co.edoli.edolitool.util
 
 import android.content.Context
 import android.graphics.Bitmap

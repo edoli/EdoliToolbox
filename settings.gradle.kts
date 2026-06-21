@@ -18,5 +18,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "EdolAndroidTool"
+rootProject.name = "EdoliToolbox"
 include(":app")

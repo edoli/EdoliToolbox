@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.feature.colorpicker
+package kr.co.edoli.edolitool.feature.colorpicker
 
 import android.Manifest
 import android.content.ClipData
@@ -92,9 +92,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kr.co.edoli.edoltool.util.PickedColor
-import kr.co.edoli.edoltool.util.colorToCompose
-import kr.co.edoli.edoltool.util.decodeBitmapFromUri
+import kr.co.edoli.edolitool.util.PickedColor
+import kr.co.edoli.edolitool.util.colorToCompose
+import kr.co.edoli.edolitool.util.decodeBitmapFromUri
 import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.roundToInt

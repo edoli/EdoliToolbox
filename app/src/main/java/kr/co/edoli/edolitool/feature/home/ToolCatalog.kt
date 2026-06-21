@@ -1,4 +1,4 @@
-package kr.co.edoli.edoltool.feature.home
+package kr.co.edoli.edolitool.feature.home
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Calculate
@@ -10,7 +10,7 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.ui.graphics.Color
-import kr.co.edoli.edoltool.model.ToolItem
+import kr.co.edoli.edolitool.model.ToolItem
 
 val toolCatalog = listOf(
     ToolItem(

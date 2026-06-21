@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-EdolAndroidTool is an Android utility collection app for personal tools used on Android devices. The app is built with Kotlin, Jetpack Compose, Material 3, and Gradle. The package name is `kr.co.edoli.edoltool`.
+EdoliToolbox is an Android utility collection app for personal tools used on Android devices. The app is built with Kotlin, Jetpack Compose, Material 3, and Gradle. The package name is `kr.co.edoli.edolitool`.
 
 ## Development Instructions
 
