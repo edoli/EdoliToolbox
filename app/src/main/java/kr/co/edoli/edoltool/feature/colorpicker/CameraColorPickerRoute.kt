@@ -2,6 +2,7 @@ package kr.co.edoli.edoltool.feature.colorpicker
 
 import android.Manifest
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -48,11 +49,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -126,6 +130,10 @@ fun CameraColorPickerRoute(
         }
     }
 
+    LaunchedEffect(context) {
+        ColorHistoryStore.load(context)
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
@@ -177,10 +185,19 @@ fun CameraColorPickerRoute(
                 description = "갤러리 이미지를 불러온 뒤 이미지를 화면 전체에 띄워 픽셀을 분석합니다.",
                 icon = Icons.Rounded.Image,
                 buttonText = "이미지 불러오기",
+                secondaryButtonText = "클립보드 불러오기",
                 onClick = {
                     imagePicker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
+                },
+                onSecondaryClick = {
+                    val uri = findClipboardImageUri(context)
+                    if (uri == null) {
+                        Toast.makeText(context, "클립보드에서 이미지 URI를 찾지 못했습니다.", Toast.LENGTH_SHORT).show()
+                    } else {
+                        onOpenImage(uri)
+                    }
                 },
             )
             ColorHistoryCard()
@@ -194,7 +211,9 @@ private fun PickerModeCard(
     description: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     buttonText: String,
+    secondaryButtonText: String? = null,
     onClick: () -> Unit,
+    onSecondaryClick: (() -> Unit)? = null,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -231,6 +250,14 @@ private fun PickerModeCard(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(buttonText)
+            }
+            if (secondaryButtonText != null && onSecondaryClick != null) {
+                Button(
+                    onClick = onSecondaryClick,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(secondaryButtonText)
+                }
             }
         }
     }
@@ -326,7 +353,7 @@ fun CameraColorPickerFullscreenRoute(onExit: () -> Unit) {
             onCopyText = { label, value -> copyText(context, label, value) },
             onCopyColorImage = { color -> copyColorRectImage(context, color) },
             onSave = { color ->
-                ColorHistoryStore.save(color)
+                ColorHistoryStore.save(context, color)
                 Toast.makeText(context, "색상을 저장했습니다.", Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -436,7 +463,7 @@ fun ImageColorPickerFullscreenRoute(
             onCopyText = { label, value -> copyText(context, label, value) },
             onCopyColorImage = { color -> copyColorRectImage(context, color) },
             onSave = { color ->
-                ColorHistoryStore.save(color)
+                ColorHistoryStore.save(context, color)
                 Toast.makeText(context, "색상을 저장했습니다.", Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.align(Alignment.BottomCenter),
@@ -625,7 +652,10 @@ private fun FullscreenColorOverlay(
 
 @Composable
 private fun ColorHistoryCard() {
+    val context = LocalContext.current
     val history = ColorHistoryStore.history
+    var expandedId by remember { mutableStateOf<Long?>(null) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -648,8 +678,43 @@ private fun ColorHistoryCard() {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            copyText(
+                                context = context,
+                                label = "HEX Colors",
+                                value = history.joinToString(separator = "\n") { it.pickedColor.hexRgb },
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("전체 복사")
+                    }
+                    OutlinedButton(
+                        onClick = { ColorHistoryStore.clear(context) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("초기화")
+                    }
+                }
                 history.forEach { savedColor ->
-                    SavedColorRow(savedColor = savedColor)
+                    SavedColorRow(
+                        savedColor = savedColor,
+                        expanded = expandedId == savedColor.id,
+                        onToggle = {
+                            expandedId = if (expandedId == savedColor.id) null else savedColor.id
+                        },
+                        onCopyText = { label, value -> copyText(context, label, value) },
+                        onCopyColorImage = { color -> copyColorRectImage(context, color) },
+                        onDelete = {
+                            ColorHistoryStore.remove(context, savedColor)
+                            if (expandedId == savedColor.id) expandedId = null
+                        },
+                    )
                 }
             }
         }
@@ -657,32 +722,128 @@ private fun ColorHistoryCard() {
 }
 
 @Composable
-private fun SavedColorRow(savedColor: SavedColor) {
+private fun SavedColorRow(
+    savedColor: SavedColor,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onCopyText: (String, String) -> Unit,
+    onCopyColorImage: (PickedColor) -> Unit,
+    onDelete: () -> Unit,
+) {
     val pickedColor = savedColor.pickedColor
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(44.dp)
-                .background(colorToCompose(pickedColor.colorInt), MaterialTheme.shapes.small)
-                .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = pickedColor.hexRgb,
-                style = MaterialTheme.typography.bodyLarge,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.SemiBold,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clickable { onCopyColorImage(pickedColor) }
+                    .background(colorToCompose(pickedColor.colorInt), MaterialTheme.shapes.small)
+                    .border(1.dp, MaterialTheme.colorScheme.outline, MaterialTheme.shapes.small),
             )
-            Text(
-                text = "${pickedColor.source} · ${savedColor.savedAtText}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = pickedColor.hexRgb,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "${pickedColor.source} · ${savedColor.savedAtText}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { onCopyText("HEX", pickedColor.hexRgb) }) {
+                Text("복사")
+            }
         }
+
+        if (expanded) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 56.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HistoryDetailRow("HEX", pickedColor.hexRgb) {
+                    onCopyText("HEX", pickedColor.hexRgb)
+                }
+                HistoryDetailRow("ARGB", pickedColor.hexArgb) {
+                    onCopyText("ARGB", pickedColor.hexArgb)
+                }
+                HistoryDetailRow("RGB", pickedColor.rgbText) {
+                    onCopyText("RGB", pickedColor.rgbText)
+                }
+                HistoryDetailRow("HSV", pickedColor.hsvText) {
+                    onCopyText("HSV", pickedColor.hsvText)
+                }
+                val hslText = "HSL ${pickedColor.hsl.hue}°, ${pickedColor.hsl.saturation}%, ${pickedColor.hsl.lightness}%"
+                HistoryDetailRow("HSL", hslText) {
+                    onCopyText("HSL", hslText)
+                }
+                val cmykText = "CMYK ${pickedColor.cmyk.cyan}%, ${pickedColor.cmyk.magenta}%, ${pickedColor.cmyk.yellow}%, ${pickedColor.cmyk.black}%"
+                HistoryDetailRow("CMYK", cmykText) {
+                    onCopyText("CMYK", cmykText)
+                }
+                val luminanceText = "%.4f".format(pickedColor.luminance)
+                HistoryDetailRow("Luminance", luminanceText) {
+                    onCopyText("Luminance", luminanceText)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = { onCopyColorImage(pickedColor) },
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("이미지 복사")
+                    }
+                    OutlinedButton(
+                        onClick = onDelete,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("삭제")
+                    }
+                }
+            }
+        }
+        HorizontalDivider()
+    }
+}
+
+@Composable
+private fun HistoryDetailRow(
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            text = label,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+        )
     }
 }
 
@@ -762,6 +923,47 @@ private fun copyColorRectImage(
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
     clipboard.setPrimaryClip(ClipData.newUri(context.contentResolver, "Color ${pickedColor.hexRgb}", uri))
     Toast.makeText(context, "색상 이미지 복사됨", Toast.LENGTH_SHORT).show()
+}
+
+private fun findClipboardImageUri(context: Context): Uri? {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clipData = clipboard.primaryClip ?: return null
+    val description = clipboard.primaryClipDescription
+
+    for (index in 0 until clipData.itemCount) {
+        val item = clipData.getItemAt(index)
+        val uri = item.uri ?: item.text?.toString()?.let { text ->
+            runCatching { Uri.parse(text) }.getOrNull()
+        }
+        if (uri != null && uri.isLikelyImageUri(context, description)) {
+            return uri
+        }
+    }
+
+    return null
+}
+
+private fun Uri.isLikelyImageUri(
+    context: Context,
+    description: ClipDescription?,
+): Boolean {
+    val describedAsImage = description?.let { desc ->
+        (0 until desc.mimeTypeCount).any { index ->
+            desc.getMimeType(index).startsWith("image/")
+        }
+    } == true
+    val resolvedAsImage = runCatching {
+        context.contentResolver.getType(this)?.startsWith("image/") == true
+    }.getOrDefault(false)
+    val pathLooksLikeImage = lastPathSegment?.lowercase()?.let { path ->
+        path.endsWith(".png") ||
+            path.endsWith(".jpg") ||
+            path.endsWith(".jpeg") ||
+            path.endsWith(".webp") ||
+            path.endsWith(".gif")
+    } == true
+
+    return describedAsImage || resolvedAsImage || pathLooksLikeImage
 }
 
 private fun sampleImageBitmap(
