@@ -34,4 +34,11 @@ val toolCatalog = listOf(
         icon = Icons.Rounded.ContentPaste,
         tint = Color(0xFF9333EA),
     ),
+    ToolItem(
+        id = "storage_inspector",
+        name = "저장장치 정보",
+        description = "외장 저장소 상태와 파일시스템 정보 확인",
+        icon = Icons.Rounded.Storage,
+        tint = Color(0xFF0F766E),
+    ),
 )

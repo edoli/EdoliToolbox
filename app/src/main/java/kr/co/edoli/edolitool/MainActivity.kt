@@ -18,6 +18,7 @@ import kr.co.edoli.edolitool.feature.home.HomeRoute
 import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
 import kr.co.edoli.edolitool.feature.home.toolCatalog
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
+import kr.co.edoli.edolitool.feature.storage.StorageInspectorRoute
 import kr.co.edoli.edolitool.ui.theme.EdoliToolboxTheme
 
 class MainActivity : ComponentActivity() {
@@ -73,6 +74,10 @@ private fun EdoliToolboxApp() {
                 )
 
                 "clipboard_analyzer" -> ClipboardAnalyzerRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
+                "storage_inspector" -> StorageInspectorRoute(
                     onBackClick = navController::popBackStack,
                 )
 
