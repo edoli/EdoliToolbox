@@ -156,6 +156,13 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
             cellWidthDp: Int,
         ): RemoteViews {
             val rowViews = RemoteViews(context.packageName, R.layout.widget_recent_app_row)
+            rowViews.setViewPadding(
+                R.id.app_icon_cell,
+                context.dpToPx(ICON_CELL_HORIZONTAL_PADDING_DP / 2),
+                context.dpToPx(ICON_CELL_VERTICAL_PADDING_DP / 2),
+                context.dpToPx(ICON_CELL_HORIZONTAL_PADDING_DP / 2),
+                context.dpToPx(ICON_CELL_VERTICAL_PADDING_DP / 2),
+            )
             if (dynamicSizingSupported) {
                 rowViews.setViewLayoutWidth(
                     R.id.app_icon_cell,
@@ -213,7 +220,7 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
                 .coerceAtLeast(1)
                 .coerceAtMost(MAX_COLUMNS)
             val cellHeight = if (showAppNames) {
-                iconSizeDp + ICON_CELL_HEIGHT_NAME_EXTRA_DP
+                iconSizeDp + ICON_CELL_HEIGHT_NAME_EXTRA_DP + ICON_CELL_VERTICAL_PADDING_DP
             } else {
                 iconSizeDp + ICON_CELL_VERTICAL_PADDING_DP
             }
@@ -258,6 +265,10 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
             )
             draw(canvas)
             return bitmap
+        }
+
+        private fun Context.dpToPx(valueDp: Int): Int {
+            return (valueDp * resources.displayMetrics.density).toInt()
         }
 
         private fun openToolPendingIntent(context: Context): PendingIntent {
@@ -317,8 +328,8 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
         private const val DEFAULT_WIDGET_HEIGHT_DP = 120
         private const val WIDGET_HORIZONTAL_PADDING_DP = 0
         private const val WIDGET_VERTICAL_PADDING_DP = 0
-        private const val ICON_CELL_HORIZONTAL_PADDING_DP = 24
-        private const val ICON_CELL_VERTICAL_PADDING_DP = 8
+        private const val ICON_CELL_HORIZONTAL_PADDING_DP = 20
+        private const val ICON_CELL_VERTICAL_PADDING_DP = 32
         private const val ICON_CELL_HEIGHT_NAME_EXTRA_DP = 28
         private const val FALLBACK_ICON_CELL_WIDTH_DP = 88
         private const val MAX_COLUMNS = 8
