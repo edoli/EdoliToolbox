@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
@@ -103,10 +104,11 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
                 iconSizeDp = iconSizeDp,
                 dynamicSizingSupported = dynamicSizingSupported,
             )
-            val recentApps = readRecentApps(context, limit = gridSpec.maxItems + 1)
+            val appSlotCount = (gridSpec.maxItems - 1).coerceAtLeast(0)
+            val recentApps = readRecentApps(context, limit = appSlotCount + 1)
                 .withPromotedPackage(RecentAppsWidgetPreferences.promotedPackageName(context))
-                .take(gridSpec.maxItems)
-            if (recentApps.isEmpty()) {
+                .take(appSlotCount)
+            if (recentApps.isEmpty() && appSlotCount > 0) {
                 showEmptyState(
                     views = views,
                     message = "최근 사용한 런처 앱이 없습니다.",
@@ -119,22 +121,29 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
 
             views.setViewVisibility(R.id.widget_apps_container, View.VISIBLE)
             views.setViewVisibility(R.id.widget_empty_container, View.GONE)
-            recentApps.chunked(gridSpec.columns).forEachIndexed { rowIndex, rowApps ->
+            val cells = recentApps.mapIndexed { index, recentApp ->
+                recentApp.toIconRemoteViews(
+                    context = context,
+                    index = index,
+                    showAppName = showAppNames,
+                    appNameColor = appNameColor,
+                    iconSizeDp = iconSizeDp,
+                    dynamicSizingSupported = dynamicSizingSupported,
+                    cellWidthDp = gridSpec.cellWidthDp,
+                )
+            } + refreshIconRemoteViews(
+                context = context,
+                appWidgetId = appWidgetId,
+                showAppName = showAppNames,
+                appNameColor = appNameColor,
+                iconSizeDp = iconSizeDp,
+                dynamicSizingSupported = dynamicSizingSupported,
+                cellWidthDp = gridSpec.cellWidthDp,
+            )
+            cells.chunked(gridSpec.columns).forEach { rowCells ->
                 val rowViews = RemoteViews(context.packageName, R.layout.widget_recent_app_icon_row)
-                rowApps.forEachIndexed { columnIndex, recentApp ->
-                    val itemIndex = rowIndex * gridSpec.columns + columnIndex
-                    rowViews.addView(
-                        R.id.app_icon_row,
-                        recentApp.toIconRemoteViews(
-                            context = context,
-                            index = itemIndex,
-                            showAppName = showAppNames,
-                            appNameColor = appNameColor,
-                            iconSizeDp = iconSizeDp,
-                            dynamicSizingSupported = dynamicSizingSupported,
-                            cellWidthDp = gridSpec.cellWidthDp,
-                        ),
-                    )
+                rowCells.forEach { cellViews ->
+                    rowViews.addView(R.id.app_icon_row, cellViews)
                 }
                 views.addView(R.id.widget_apps_container, rowViews)
             }
@@ -166,30 +175,12 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
             cellWidthDp: Int,
         ): RemoteViews {
             val rowViews = RemoteViews(context.packageName, R.layout.widget_recent_app_row)
-            rowViews.setViewPadding(
-                R.id.app_icon_cell,
-                context.dpToPx(ICON_CELL_HORIZONTAL_PADDING_DP / 2),
-                context.dpToPx(ICON_CELL_VERTICAL_PADDING_DP / 2),
-                context.dpToPx(ICON_CELL_HORIZONTAL_PADDING_DP / 2),
-                context.dpToPx(ICON_CELL_VERTICAL_PADDING_DP / 2),
+            rowViews.applyIconCellSizing(
+                context = context,
+                iconSizeDp = iconSizeDp,
+                dynamicSizingSupported = dynamicSizingSupported,
+                cellWidthDp = cellWidthDp,
             )
-            if (dynamicSizingSupported) {
-                rowViews.setViewLayoutWidth(
-                    R.id.app_icon_cell,
-                    cellWidthDp.toFloat(),
-                    TypedValue.COMPLEX_UNIT_DIP,
-                )
-                rowViews.setViewLayoutWidth(
-                    R.id.app_icon,
-                    iconSizeDp.toFloat(),
-                    TypedValue.COMPLEX_UNIT_DIP,
-                )
-                rowViews.setViewLayoutHeight(
-                    R.id.app_icon,
-                    iconSizeDp.toFloat(),
-                    TypedValue.COMPLEX_UNIT_DIP,
-                )
-            }
             rowViews.setImageViewBitmap(
                 R.id.app_icon,
                 icon.toIconBitmap(
@@ -206,6 +197,73 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
                 launchPendingIntent(context, packageName, index),
             )
             return rowViews
+        }
+
+        private fun refreshIconRemoteViews(
+            context: Context,
+            appWidgetId: Int,
+            showAppName: Boolean,
+            appNameColor: Int,
+            iconSizeDp: Int,
+            dynamicSizingSupported: Boolean,
+            cellWidthDp: Int,
+        ): RemoteViews {
+            val rowViews = RemoteViews(context.packageName, R.layout.widget_recent_app_row)
+            rowViews.applyIconCellSizing(
+                context = context,
+                iconSizeDp = iconSizeDp,
+                dynamicSizingSupported = dynamicSizingSupported,
+                cellWidthDp = cellWidthDp,
+            )
+            rowViews.setImageViewBitmap(
+                R.id.app_icon,
+                createRefreshIconBitmap(
+                    context = context,
+                    iconSizeDp = iconSizeDp,
+                    dynamicSizingSupported = dynamicSizingSupported,
+                    color = appNameColor,
+                ),
+            )
+            rowViews.setTextViewText(R.id.app_name, "새로고침")
+            rowViews.setTextColor(R.id.app_name, appNameColor)
+            rowViews.setViewVisibility(R.id.app_name, if (showAppName) View.VISIBLE else View.GONE)
+            rowViews.setOnClickPendingIntent(
+                R.id.app_icon_cell,
+                refreshPendingIntent(context, appWidgetId),
+            )
+            return rowViews
+        }
+
+        private fun RemoteViews.applyIconCellSizing(
+            context: Context,
+            iconSizeDp: Int,
+            dynamicSizingSupported: Boolean,
+            cellWidthDp: Int,
+        ) {
+            setViewPadding(
+                R.id.app_icon_cell,
+                context.dpToPx(ICON_CELL_HORIZONTAL_PADDING_DP / 2),
+                context.dpToPx(ICON_CELL_VERTICAL_PADDING_DP / 2),
+                context.dpToPx(ICON_CELL_HORIZONTAL_PADDING_DP / 2),
+                context.dpToPx(ICON_CELL_VERTICAL_PADDING_DP / 2),
+            )
+            if (dynamicSizingSupported) {
+                setViewLayoutWidth(
+                    R.id.app_icon_cell,
+                    cellWidthDp.toFloat(),
+                    TypedValue.COMPLEX_UNIT_DIP,
+                )
+                setViewLayoutWidth(
+                    R.id.app_icon,
+                    iconSizeDp.toFloat(),
+                    TypedValue.COMPLEX_UNIT_DIP,
+                )
+                setViewLayoutHeight(
+                    R.id.app_icon,
+                    iconSizeDp.toFloat(),
+                    TypedValue.COMPLEX_UNIT_DIP,
+                )
+            }
         }
 
         private fun List<RecentApp>.withPromotedPackage(packageName: String?): List<RecentApp> {
@@ -281,6 +339,34 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
                 insetPx + iconSizePx,
             )
             draw(canvas)
+            return bitmap
+        }
+
+        private fun createRefreshIconBitmap(
+            context: Context,
+            iconSizeDp: Int,
+            dynamicSizingSupported: Boolean,
+            color: Int,
+        ): Bitmap {
+            val density = context.resources.displayMetrics.density
+            val canvasSizeDp = if (dynamicSizingSupported) {
+                iconSizeDp
+            } else {
+                RecentAppsWidgetPreferences.MAX_ICON_SIZE_DP
+            }
+            val canvasSizePx = (canvasSizeDp * density).toInt().coerceAtLeast(1)
+            val iconSizePx = (iconSizeDp * density).toInt()
+                .coerceIn(1, canvasSizePx)
+            val bitmap = Bitmap.createBitmap(canvasSizePx, canvasSizePx, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                this.color = color
+                textAlign = Paint.Align.CENTER
+                textSize = iconSizePx * 0.72f
+            }
+            val fontMetrics = paint.fontMetrics
+            val y = canvasSizePx / 2f - (fontMetrics.ascent + fontMetrics.descent) / 2f
+            canvas.drawText("↻", canvasSizePx / 2f, y, paint)
             return bitmap
         }
 
