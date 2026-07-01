@@ -50,6 +50,7 @@ fun readRecentApps(
 
     val packageManager = context.packageManager
     val launchableApps = packageManager.queryLaunchableApps()
+    val launcherPackages = packageManager.queryHomePackages()
     if (launchableApps.isEmpty()) return emptyList()
 
     val now = System.currentTimeMillis()
@@ -64,6 +65,7 @@ fun readRecentApps(
         .asSequence()
         .filter { stats -> stats.lastTimeUsed > 0L }
         .filter { stats -> stats.packageName != context.packageName }
+        .filterNot { stats -> stats.packageName in launcherPackages }
         .mapNotNull { stats ->
             val resolveInfo = launchableApps[stats.packageName] ?: return@mapNotNull null
             RecentApp(
@@ -106,4 +108,15 @@ private fun android.content.pm.PackageManager.queryLaunchableApps(): Map<String,
         .mapValues { (_, resolveInfos) ->
             resolveInfos.first()
         }
+}
+
+private fun android.content.pm.PackageManager.queryHomePackages(): Set<String> {
+    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+        addCategory(Intent.CATEGORY_HOME)
+    }
+    val resolvedHome = resolveActivity(homeIntent, 0)?.activityInfo?.packageName
+    val homeCandidates = queryIntentActivities(homeIntent, 0)
+        .map { resolveInfo -> resolveInfo.activityInfo.packageName }
+
+    return (homeCandidates + listOfNotNull(resolvedHome)).toSet()
 }
