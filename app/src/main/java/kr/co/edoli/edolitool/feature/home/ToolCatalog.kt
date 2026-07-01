@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Calculate
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.FormatColorFill
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
@@ -40,5 +41,12 @@ val toolCatalog = listOf(
         description = "외장 저장소 상태와 파일시스템 정보 확인",
         icon = Icons.Rounded.Storage,
         tint = Color(0xFF0F766E),
+    ),
+    ToolItem(
+        id = "recent_apps_widget",
+        name = "최근 앱 위젯",
+        description = "홈 화면에서 최근 사용 앱을 바로 실행",
+        icon = Icons.Rounded.Apps,
+        tint = Color(0xFFDC2626),
     ),
 )

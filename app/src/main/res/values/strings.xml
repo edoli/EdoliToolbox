@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Edoli Toolbox</string>
+    <string name="recent_apps_widget_title">최근 사용 앱</string>
+    <string name="recent_apps_widget_description">최근 사용한 앱을 홈 화면에서 바로 엽니다.</string>
+    <string name="recent_apps_widget_refresh">↻</string>
 </resources>

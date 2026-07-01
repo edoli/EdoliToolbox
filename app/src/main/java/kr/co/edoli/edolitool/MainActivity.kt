@@ -17,6 +17,7 @@ import kr.co.edoli.edolitool.feature.colorpicker.ImageColorPickerFullscreenRoute
 import kr.co.edoli.edolitool.feature.home.HomeRoute
 import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
 import kr.co.edoli.edolitool.feature.home.toolCatalog
+import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
 import kr.co.edoli.edolitool.feature.storage.StorageInspectorRoute
 import kr.co.edoli.edolitool.ui.theme.EdoliToolboxTheme
@@ -27,19 +28,30 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             EdoliToolboxTheme {
-                EdoliToolboxApp()
+                EdoliToolboxApp(
+                    startToolId = intent.getStringExtra(EXTRA_START_TOOL_ID),
+                )
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_START_TOOL_ID = "kr.co.edoli.edolitool.extra.START_TOOL_ID"
     }
 }
 
 @Composable
-private fun EdoliToolboxApp() {
+private fun EdoliToolboxApp(startToolId: String?) {
     val navController = rememberNavController()
+    val startDestination = if (startToolId.isNullOrBlank()) {
+        "home"
+    } else {
+        "tool/$startToolId"
+    }
 
     NavHost(
         navController = navController,
-        startDestination = "home",
+        startDestination = startDestination,
     ) {
         composable("home") {
             HomeRoute(
@@ -78,6 +90,10 @@ private fun EdoliToolboxApp() {
                 )
 
                 "storage_inspector" -> StorageInspectorRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
+                "recent_apps_widget" -> RecentAppsWidgetRoute(
                     onBackClick = navController::popBackStack,
                 )
 
