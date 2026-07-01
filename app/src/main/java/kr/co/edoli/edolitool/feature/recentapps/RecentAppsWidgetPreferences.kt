@@ -6,7 +6,11 @@ object RecentAppsWidgetPreferences {
     private const val PREFERENCES_NAME = "recent_apps_widget"
     private const val KEY_SHOW_APP_NAMES = "show_app_names"
     private const val KEY_APP_NAME_COLOR = "app_name_color"
+    private const val KEY_ICON_SIZE_DP = "icon_size_dp"
     const val DEFAULT_APP_NAME_COLOR = -0xeeeeef
+    const val MIN_ICON_SIZE_DP = 36
+    const val DEFAULT_ICON_SIZE_DP = 48
+    const val MAX_ICON_SIZE_DP = 64
 
     fun showAppNames(context: Context): Boolean {
         return context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -16,6 +20,12 @@ object RecentAppsWidgetPreferences {
     fun appNameColor(context: Context): Int {
         return context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .getInt(KEY_APP_NAME_COLOR, DEFAULT_APP_NAME_COLOR)
+    }
+
+    fun iconSizeDp(context: Context): Int {
+        return context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .getInt(KEY_ICON_SIZE_DP, DEFAULT_ICON_SIZE_DP)
+            .coerceIn(MIN_ICON_SIZE_DP, MAX_ICON_SIZE_DP)
     }
 
     fun setShowAppNames(
@@ -35,6 +45,16 @@ object RecentAppsWidgetPreferences {
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit()
             .putInt(KEY_APP_NAME_COLOR, color)
+            .apply()
+    }
+
+    fun setIconSizeDp(
+        context: Context,
+        iconSizeDp: Int,
+    ) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_ICON_SIZE_DP, iconSizeDp.coerceIn(MIN_ICON_SIZE_DP, MAX_ICON_SIZE_DP))
             .apply()
     }
 }

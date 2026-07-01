@@ -40,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -62,6 +63,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kr.co.edoli.edolitool.widget.RecentAppsWidgetProvider
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,6 +74,7 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
     var recentApps by remember { mutableStateOf(readRecentApps(context)) }
     var showAppNames by remember { mutableStateOf(RecentAppsWidgetPreferences.showAppNames(context)) }
     var appNameColor by remember { mutableStateOf(RecentAppsWidgetPreferences.appNameColor(context)) }
+    var iconSizeDp by remember { mutableStateOf(RecentAppsWidgetPreferences.iconSizeDp(context)) }
 
     fun refresh() {
         hasPermission = hasUsageStatsAccess(context)
@@ -143,6 +146,7 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
             WidgetActionsCard(
                 showAppNames = showAppNames,
                 appNameColor = appNameColor,
+                iconSizeDp = iconSizeDp,
                 onShowAppNamesChange = { showNames ->
                     showAppNames = showNames
                     RecentAppsWidgetPreferences.setShowAppNames(context, showNames)
@@ -151,6 +155,11 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
                 onAppNameColorChange = { color ->
                     appNameColor = color
                     RecentAppsWidgetPreferences.setAppNameColor(context, color)
+                    RecentAppsWidgetProvider.updateAll(context)
+                },
+                onIconSizeChange = { sizeDp ->
+                    iconSizeDp = sizeDp
+                    RecentAppsWidgetPreferences.setIconSizeDp(context, sizeDp)
                     RecentAppsWidgetProvider.updateAll(context)
                 },
                 onPinWidget = { requestPinRecentAppsWidget(context) },
@@ -199,8 +208,10 @@ private fun PermissionCard(
 private fun WidgetActionsCard(
     showAppNames: Boolean,
     appNameColor: Int,
+    iconSizeDp: Int,
     onShowAppNamesChange: (Boolean) -> Unit,
     onAppNameColorChange: (Int) -> Unit,
+    onIconSizeChange: (Int) -> Unit,
     onPinWidget: () -> Unit,
     onRefreshWidget: () -> Unit,
 ) {
@@ -244,6 +255,10 @@ private fun WidgetActionsCard(
             selectedColor = appNameColor,
             onColorSelected = onAppNameColorChange,
         )
+        IconSizeSelector(
+            iconSizeDp = iconSizeDp,
+            onIconSizeChange = onIconSizeChange,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -283,6 +298,43 @@ private fun WidgetActionsCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun IconSizeSelector(
+    iconSizeDp: Int,
+    onIconSizeChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "아이콘 크기",
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "${iconSizeDp}dp",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Slider(
+            value = iconSizeDp.toFloat(),
+            onValueChange = { value ->
+                onIconSizeChange(value.toIconSizeStep())
+            },
+            valueRange = RecentAppsWidgetPreferences.MIN_ICON_SIZE_DP.toFloat()..
+                RecentAppsWidgetPreferences.MAX_ICON_SIZE_DP.toFloat(),
+            steps = 6,
+        )
     }
 }
 
@@ -514,3 +566,11 @@ private val appNameColorOptions = listOf(
         checkColor = Color.White,
     ),
 )
+
+private fun Float.toIconSizeStep(): Int {
+    val min = RecentAppsWidgetPreferences.MIN_ICON_SIZE_DP
+    val max = RecentAppsWidgetPreferences.MAX_ICON_SIZE_DP
+    val step = 4
+    return (((this - min) / step).roundToInt() * step + min)
+        .coerceIn(min, max)
+}
