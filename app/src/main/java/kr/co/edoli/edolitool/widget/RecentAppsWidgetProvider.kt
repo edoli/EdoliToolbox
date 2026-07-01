@@ -38,8 +38,14 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
         intent: Intent,
     ) {
         super.onReceive(context, intent)
-        if (intent.action == ACTION_REFRESH) {
-            updateAll(context)
+        when (intent.action) {
+            ACTION_REFRESH -> updateAll(context)
+            ACTION_LAUNCH_APP -> {
+                val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: return
+                RecentAppsWidgetPreferences.promotePackage(context, packageName)
+                updateAll(context)
+                launchApp(context, packageName)
+            }
         }
     }
 
@@ -54,6 +60,8 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH = "kr.co.edoli.edolitool.action.REFRESH_RECENT_APPS_WIDGET"
+        private const val ACTION_LAUNCH_APP = "kr.co.edoli.edolitool.action.LAUNCH_RECENT_APP"
+        private const val EXTRA_PACKAGE_NAME = "kr.co.edoli.edolitool.extra.PACKAGE_NAME"
 
         fun updateAll(context: Context) {
             val appWidgetManager = AppWidgetManager.getInstance(context)
@@ -95,7 +103,9 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
                 iconSizeDp = iconSizeDp,
                 dynamicSizingSupported = dynamicSizingSupported,
             )
-            val recentApps = readRecentApps(context, limit = gridSpec.maxItems)
+            val recentApps = readRecentApps(context, limit = gridSpec.maxItems + 1)
+                .withPromotedPackage(RecentAppsWidgetPreferences.promotedPackageName(context))
+                .take(gridSpec.maxItems)
             if (recentApps.isEmpty()) {
                 showEmptyState(
                     views = views,
@@ -191,10 +201,17 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
             rowViews.setTextViewText(R.id.app_name, label)
             rowViews.setTextColor(R.id.app_name, appNameColor)
             rowViews.setViewVisibility(R.id.app_name, if (showAppName) View.VISIBLE else View.GONE)
-            launchPendingIntent(context, packageName, index)?.let { pendingIntent ->
-                rowViews.setOnClickPendingIntent(R.id.app_icon_cell, pendingIntent)
-            }
+            rowViews.setOnClickPendingIntent(
+                R.id.app_icon_cell,
+                launchPendingIntent(context, packageName, index),
+            )
             return rowViews
+        }
+
+        private fun List<RecentApp>.withPromotedPackage(packageName: String?): List<RecentApp> {
+            if (packageName == null) return this
+            val promotedApp = firstOrNull { app -> app.packageName == packageName } ?: return this
+            return listOf(promotedApp) + filterNot { app -> app.packageName == packageName }
         }
 
         private fun calculateGridSpec(
@@ -312,16 +329,27 @@ class RecentAppsWidgetProvider : AppWidgetProvider() {
             context: Context,
             packageName: String,
             index: Int,
-        ): PendingIntent? {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
-                ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                ?: return null
-            return PendingIntent.getActivity(
+        ): PendingIntent {
+            val launchIntent = Intent(context, RecentAppsWidgetProvider::class.java).apply {
+                action = ACTION_LAUNCH_APP
+                putExtra(EXTRA_PACKAGE_NAME, packageName)
+            }
+            return PendingIntent.getBroadcast(
                 context,
                 3000 + index,
                 launchIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
+        }
+
+        private fun launchApp(
+            context: Context,
+            packageName: String,
+        ) {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: return
+            context.startActivity(launchIntent)
         }
 
         private const val DEFAULT_WIDGET_WIDTH_DP = 250
