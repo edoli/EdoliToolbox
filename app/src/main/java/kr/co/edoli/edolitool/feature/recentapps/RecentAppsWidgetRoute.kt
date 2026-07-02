@@ -201,6 +201,14 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
             RecentAppsPreviewCard(
                 hasPermission = hasPermission,
                 recentApps = recentApps,
+                onExcludeApp = { app ->
+                    val nextPackageNames = excludedPackageNames + app.packageName
+                    excludedPackageNames = nextPackageNames
+                    RecentAppsWidgetPreferences.setExcludedPackageNames(context, nextPackageNames)
+                    recentApps = readRecentApps(context)
+                    RecentAppsWidgetProvider.updateAll(context)
+                    Toast.makeText(context, "${app.label} 앱을 제외했습니다.", Toast.LENGTH_SHORT).show()
+                },
             )
         }
     }
@@ -599,6 +607,7 @@ private fun ExcludedAppRow(
 private fun RecentAppsPreviewCard(
     hasPermission: Boolean,
     recentApps: List<RecentApp>,
+    onExcludeApp: (RecentApp) -> Unit,
 ) {
     InfoCard(title = "미리보기") {
         when {
@@ -620,6 +629,7 @@ private fun RecentAppsPreviewCard(
                     RecentAppRow(
                         app = app,
                         lastUsedText = formatLastUsedRelative(now, app.lastUsedTime),
+                        onExcludeApp = { onExcludeApp(app) },
                     )
                 }
             }
@@ -631,6 +641,7 @@ private fun RecentAppsPreviewCard(
 private fun RecentAppRow(
     app: RecentApp,
     lastUsedText: String,
+    onExcludeApp: () -> Unit,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -655,6 +666,9 @@ private fun RecentAppRow(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+        OutlinedButton(onClick = onExcludeApp) {
+            Text(text = "제외")
         }
     }
 }
