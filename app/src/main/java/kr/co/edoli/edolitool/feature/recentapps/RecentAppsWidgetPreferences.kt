@@ -9,6 +9,7 @@ object RecentAppsWidgetPreferences {
     private const val KEY_ICON_SIZE_DP = "icon_size_dp"
     private const val KEY_PROMOTED_PACKAGE_NAME = "promoted_package_name"
     private const val KEY_PROMOTED_AT = "promoted_at"
+    private const val KEY_EXCLUDED_PACKAGE_NAMES = "excluded_package_names"
     const val DEFAULT_APP_NAME_COLOR = -0xeeeeef
     const val MIN_ICON_SIZE_DP = 36
     const val DEFAULT_ICON_SIZE_DP = 48
@@ -37,6 +38,13 @@ object RecentAppsWidgetPreferences {
             return null
         }
         return preferences.getString(KEY_PROMOTED_PACKAGE_NAME, null)
+    }
+
+    fun excludedPackageNames(context: Context): Set<String> {
+        return context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .getStringSet(KEY_EXCLUDED_PACKAGE_NAMES, emptySet())
+            ?.toSet()
+            .orEmpty()
     }
 
     fun setShowAppNames(
@@ -77,6 +85,16 @@ object RecentAppsWidgetPreferences {
             .edit()
             .putString(KEY_PROMOTED_PACKAGE_NAME, packageName)
             .putLong(KEY_PROMOTED_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun setExcludedPackageNames(
+        context: Context,
+        packageNames: Set<String>,
+    ) {
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putStringSet(KEY_EXCLUDED_PACKAGE_NAMES, packageNames)
             .apply()
     }
 

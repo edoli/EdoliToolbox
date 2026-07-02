@@ -18,6 +18,12 @@ data class RecentApp(
     val icon: Drawable,
 )
 
+data class LaunchableApp(
+    val packageName: String,
+    val label: String,
+    val icon: Drawable,
+)
+
 @Suppress("DEPRECATION")
 fun hasUsageStatsAccess(context: Context): Boolean {
     val appOpsManager = context.getSystemService(AppOpsManager::class.java)
@@ -51,6 +57,7 @@ fun readRecentApps(
     val packageManager = context.packageManager
     val launchableApps = packageManager.queryLaunchableApps()
     val launcherPackages = packageManager.queryHomePackages()
+    val excludedPackageNames = RecentAppsWidgetPreferences.excludedPackageNames(context)
     if (launchableApps.isEmpty()) return emptyList()
 
     val now = System.currentTimeMillis()
@@ -66,6 +73,7 @@ fun readRecentApps(
         .filter { stats -> stats.lastTimeUsed > 0L }
         .filter { stats -> stats.packageName != context.packageName }
         .filterNot { stats -> stats.packageName in launcherPackages }
+        .filterNot { stats -> stats.packageName in excludedPackageNames }
         .mapNotNull { stats ->
             val resolveInfo = launchableApps[stats.packageName] ?: return@mapNotNull null
             RecentApp(
@@ -78,6 +86,25 @@ fun readRecentApps(
         .sortedByDescending { app -> app.lastUsedTime }
         .distinctBy { app -> app.packageName }
         .take(limit)
+        .toList()
+}
+
+fun readLaunchableAppCandidates(context: Context): List<LaunchableApp> {
+    val packageManager = context.packageManager
+    val launcherPackages = packageManager.queryHomePackages()
+    return packageManager.queryLaunchableApps()
+        .values
+        .asSequence()
+        .filterNot { resolveInfo -> resolveInfo.activityInfo.packageName == context.packageName }
+        .filterNot { resolveInfo -> resolveInfo.activityInfo.packageName in launcherPackages }
+        .map { resolveInfo ->
+            LaunchableApp(
+                packageName = resolveInfo.activityInfo.packageName,
+                label = resolveInfo.loadLabel(packageManager).toString(),
+                icon = resolveInfo.loadIcon(packageManager),
+            )
+        }
+        .sortedBy { app -> app.label.lowercase() }
         .toList()
 }
 

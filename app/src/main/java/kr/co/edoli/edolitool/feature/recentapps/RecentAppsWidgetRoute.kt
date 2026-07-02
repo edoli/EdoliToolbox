@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +49,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,10 +78,19 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
     var showAppNames by remember { mutableStateOf(RecentAppsWidgetPreferences.showAppNames(context)) }
     var appNameColor by remember { mutableStateOf(RecentAppsWidgetPreferences.appNameColor(context)) }
     var iconSizeDp by remember { mutableStateOf(RecentAppsWidgetPreferences.iconSizeDp(context)) }
+    var excludedPackageNames by remember {
+        mutableStateOf(RecentAppsWidgetPreferences.excludedPackageNames(context))
+    }
+    var showExcludedAppsScreen by remember { mutableStateOf(false) }
 
     fun refresh() {
         hasPermission = hasUsageStatsAccess(context)
         recentApps = readRecentApps(context)
+        excludedPackageNames = RecentAppsWidgetPreferences.excludedPackageNames(context)
+    }
+
+    BackHandler(enabled = showExcludedAppsScreen) {
+        showExcludedAppsScreen = false
     }
 
     DisposableEffect(lifecycleOwner, context) {
@@ -91,6 +103,20 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
+    }
+
+    if (showExcludedAppsScreen) {
+        ExcludedAppsRoute(
+            initialExcludedPackageNames = excludedPackageNames,
+            onBackClick = { showExcludedAppsScreen = false },
+            onExcludedPackageNamesChange = { packageNames ->
+                excludedPackageNames = packageNames
+                RecentAppsWidgetPreferences.setExcludedPackageNames(context, packageNames)
+                recentApps = readRecentApps(context)
+                RecentAppsWidgetProvider.updateAll(context)
+            },
+        )
+        return
     }
 
     Scaffold(
@@ -167,6 +193,10 @@ fun RecentAppsWidgetRoute(onBackClick: () -> Unit) {
                     RecentAppsWidgetProvider.updateAll(context)
                     Toast.makeText(context, "최근 앱 위젯을 새로고침했습니다.", Toast.LENGTH_SHORT).show()
                 },
+            )
+            ExcludedAppsSummaryCard(
+                excludedAppCount = excludedPackageNames.size,
+                onManageClick = { showExcludedAppsScreen = true },
             )
             RecentAppsPreviewCard(
                 hasPermission = hasPermission,
@@ -399,6 +429,169 @@ private fun ColorSwatch(
                 modifier = Modifier.size(22.dp),
             )
         }
+    }
+}
+
+@Composable
+private fun ExcludedAppsSummaryCard(
+    excludedAppCount: Int,
+    onManageClick: () -> Unit,
+) {
+    InfoCard(title = "제외 앱") {
+        Text(
+            text = if (excludedAppCount == 0) {
+                "위젯에 표시하지 않을 앱을 선택합니다."
+            } else {
+                "${excludedAppCount}개 앱을 위젯에서 숨깁니다."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedButton(onClick = onManageClick) {
+            Icon(
+                imageVector = Icons.Rounded.Settings,
+                contentDescription = null,
+            )
+            Text(
+                text = "제외 앱 관리",
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExcludedAppsRoute(
+    initialExcludedPackageNames: Set<String>,
+    onBackClick: () -> Unit,
+    onExcludedPackageNamesChange: (Set<String>) -> Unit,
+) {
+    val context = LocalContext.current
+    var apps by remember { mutableStateOf<List<LaunchableApp>?>(null) }
+    var excludedPackageNames by remember { mutableStateOf(initialExcludedPackageNames) }
+
+    LaunchedEffect(context) {
+        apps = readLaunchableAppCandidates(context)
+    }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text(
+                        text = "제외 앱",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "뒤로",
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                ),
+            )
+        },
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = if (excludedPackageNames.isEmpty()) {
+                    "위젯에 표시하지 않을 앱을 선택합니다."
+                } else {
+                    "${excludedPackageNames.size}개 앱을 위젯에서 숨깁니다."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            when (val currentApps = apps) {
+                null -> Text(
+                    text = "앱 목록을 불러오는 중입니다.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                else -> if (currentApps.isEmpty()) {
+                    Text(
+                        text = "선택할 수 있는 앱이 없습니다.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    currentApps.forEach { app ->
+                        ExcludedAppRow(
+                            app = app,
+                            excluded = app.packageName in excludedPackageNames,
+                            onToggle = {
+                                val nextPackageNames = if (app.packageName in excludedPackageNames) {
+                                    excludedPackageNames - app.packageName
+                                } else {
+                                    excludedPackageNames + app.packageName
+                                }
+                                excludedPackageNames = nextPackageNames
+                                onExcludedPackageNamesChange(nextPackageNames)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExcludedAppRow(
+    app: LaunchableApp,
+    excluded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            bitmap = remember(app.packageName) { app.icon.toBitmap(96).asImageBitmap() },
+            contentDescription = null,
+            modifier = Modifier.size(36.dp),
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = app.label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = app.packageName,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Checkbox(
+            checked = excluded,
+            onCheckedChange = { onToggle() },
+        )
     }
 }
 
