@@ -30,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -67,6 +68,10 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
     var isImporting by remember { mutableStateOf(false) }
     var activePetId by remember { mutableStateOf(PetOverlayController.activePetId(context)) }
     var petSizeDp by remember { mutableStateOf(PetOverlayController.petSizeDp(context).toFloat()) }
+    var isSmoothDragEnabled by remember { mutableStateOf(PetOverlayController.isSmoothDragEnabled(context)) }
+    var smoothDragFollowFraction by remember {
+        mutableStateOf(PetOverlayController.smoothDragFollowFraction(context))
+    }
     val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -122,6 +127,20 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                     onReset = {
                         petSizeDp = PetOverlayController.defaultPetSizeDp.toFloat()
                         PetOverlayController.updatePetSize(context, PetOverlayController.defaultPetSizeDp)
+                    },
+                )
+            }
+            item {
+                SmoothDragCard(
+                    enabled = isSmoothDragEnabled,
+                    onEnabledChange = { enabled ->
+                        isSmoothDragEnabled = enabled
+                        PetOverlayController.setSmoothDragEnabled(context, enabled)
+                    },
+                    followFraction = smoothDragFollowFraction,
+                    onFollowFractionChange = { fraction ->
+                        smoothDragFollowFraction = fraction
+                        PetOverlayController.setSmoothDragFollowFraction(context, fraction)
                     },
                 )
             }
@@ -211,6 +230,51 @@ private fun PetSizeCard(
             )
             Button(onClick = onReset) {
                 Text("기본 크기로 재설정")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmoothDragCard(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    followFraction: Float,
+    onFollowFractionChange: (Float) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("부드러운 드래그", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "드래그할 때 펫이 짧게 뒤따라옵니다.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
+            if (enabled) {
+                Text("따라오는 속도", style = MaterialTheme.typography.bodyMedium)
+                Slider(
+                    value = followFraction,
+                    onValueChange = onFollowFractionChange,
+                    valueRange = PetOverlayController.minSmoothDragFollowFraction..PetOverlayController.maxSmoothDragFollowFraction,
+                )
+                Text(
+                    "느리게  ·  빠르게",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

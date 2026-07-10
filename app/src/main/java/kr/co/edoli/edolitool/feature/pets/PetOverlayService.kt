@@ -40,6 +40,8 @@ object PetOverlayController {
     private const val preferencesName = "pet_overlay"
     private const val activePetIdKey = "active_pet_id"
     private const val petSizeDpKey = "pet_size_dp"
+    private const val smoothDragKey = "smooth_drag"
+    private const val smoothDragFollowFractionKey = "smooth_drag_follow_fraction"
     private const val actionShow = "kr.co.edoli.edolitool.action.SHOW_PET"
     private const val actionHide = "kr.co.edoli.edolitool.action.HIDE_PET"
     private const val actionUpdateSize = "kr.co.edoli.edolitool.action.UPDATE_PET_SIZE"
@@ -66,6 +68,32 @@ object PetOverlayController {
                 Intent(context, PetOverlayService::class.java).setAction(actionUpdateSize),
             )
         }
+    }
+
+    fun isSmoothDragEnabled(context: Context): Boolean =
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .getBoolean(smoothDragKey, true)
+
+    fun setSmoothDragEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(smoothDragKey, enabled)
+            .apply()
+    }
+
+    fun smoothDragFollowFraction(context: Context): Float =
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .getFloat(smoothDragFollowFractionKey, defaultSmoothDragFollowFraction)
+            .coerceIn(minSmoothDragFollowFraction, maxSmoothDragFollowFraction)
+
+    fun setSmoothDragFollowFraction(context: Context, fraction: Float) {
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .edit()
+            .putFloat(
+                smoothDragFollowFractionKey,
+                fraction.coerceIn(minSmoothDragFollowFraction, maxSmoothDragFollowFraction),
+            )
+            .apply()
     }
 
     fun openOverlayPermission(context: Context) {
@@ -99,9 +127,12 @@ object PetOverlayController {
             .apply()
     }
 
-    const val minPetSizeDp = 64
+    const val minPetSizeDp = 32
     const val maxPetSizeDp = 512
     const val defaultPetSizeDp = 112
+    const val minSmoothDragFollowFraction = 0.12f
+    const val maxSmoothDragFollowFraction = 0.50f
+    const val defaultSmoothDragFollowFraction = 0.28f
 }
 
 class PetOverlayService : Service() {
@@ -191,6 +222,8 @@ class PetOverlayService : Service() {
         overlayView = PetSpriteView(
             context = this,
             spritesheet = BitmapFactory.decodeFile(petFiles.spritesheet.path),
+            isSmoothDragEnabled = { PetOverlayController.isSmoothDragEnabled(this) },
+            smoothDragFollowFraction = { PetOverlayController.smoothDragFollowFraction(this) },
             onDragFinished = ::hidePetIfDraggedOffscreen,
         ).also { view ->
             windowManager.addView(
@@ -350,6 +383,8 @@ private enum class HiddenSide {
 private class PetSpriteView(
     context: Context,
     private val spritesheet: Bitmap,
+    private val isSmoothDragEnabled: () -> Boolean,
+    private val smoothDragFollowFraction: () -> Float,
     private val onDragFinished: (WindowManager.LayoutParams) -> Unit,
 ) : View(context) {
     private val handler = Handler(Looper.getMainLooper())
@@ -364,6 +399,9 @@ private class PetSpriteView(
     private var downWindowY = 0
     private var runningDirection = 0
     private var oppositeDirectionDistance = 0f
+    private var targetWindowX = 0
+    private var targetWindowY = 0
+    private var isSmoothFollowerRunning = false
     private var isDragging = false
     private var longPressTriggered = false
     private var suppressTapReaction = false
@@ -394,6 +432,25 @@ private class PetSpriteView(
     private val inactivity = Runnable {
         if (!isDragging) {
             play(if (Random.nextBoolean()) PetAnimation.Waiting else PetAnimation.Review)
+        }
+    }
+    private val smoothFollower = object : Runnable {
+        override fun run() {
+            val windowManager = context.getSystemService(WindowManager::class.java)
+            val params = layoutParams as? WindowManager.LayoutParams ?: run {
+                isSmoothFollowerRunning = false
+                return
+            }
+            val horizontalDistance = targetWindowX - params.x
+            val verticalDistance = targetWindowY - params.y
+            params.x = moveTowards(params.x, targetWindowX, horizontalDistance)
+            params.y = moveTowards(params.y, targetWindowY, verticalDistance)
+            windowManager.updateViewLayout(this@PetSpriteView, params)
+            if (params.x == targetWindowX && params.y == targetWindowY) {
+                isSmoothFollowerRunning = false
+            } else {
+                handler.postDelayed(this, smoothDragFrameDurationMillis)
+            }
         }
     }
 
@@ -427,6 +484,8 @@ private class PetSpriteView(
                 lastRawX = event.rawX
                 downWindowX = params.x
                 downWindowY = params.y
+                targetWindowX = params.x
+                targetWindowY = params.y
                 isDragging = false
                 longPressTriggered = false
                 suppressTapReaction = animation == PetAnimation.Failed ||
@@ -454,9 +513,12 @@ private class PetSpriteView(
                 if (abs(horizontalStep) > 0.5f) {
                     updateRunningDirection(if (horizontalStep < 0) -1 else 1, abs(horizontalStep))
                 }
-                params.x = downWindowX + horizontalDistance.roundToInt()
-                params.y = downWindowY + verticalDistance.roundToInt()
-                windowManager.updateViewLayout(this, params)
+                updateWindowPosition(
+                    windowManager = windowManager,
+                    params = params,
+                    targetX = downWindowX + horizontalDistance.roundToInt(),
+                    targetY = downWindowY + verticalDistance.roundToInt(),
+                )
                 lastRawX = event.rawX
                 return true
             }
@@ -466,7 +528,16 @@ private class PetSpriteView(
                 when {
                     isDragging -> {
                         isDragging = false
-                        onDragFinished(params)
+                        val endParams = if (isSmoothDragEnabled()) {
+                            WindowManager.LayoutParams().apply {
+                                width = params.width
+                                x = targetWindowX
+                                y = targetWindowY
+                            }
+                        } else {
+                            params
+                        }
+                        onDragFinished(endParams)
                         play(PetAnimation.Idle)
                     }
 
@@ -506,6 +577,33 @@ private class PetSpriteView(
                 }
             }
         }
+    }
+
+    private fun updateWindowPosition(
+        windowManager: WindowManager,
+        params: WindowManager.LayoutParams,
+        targetX: Int,
+        targetY: Int,
+    ) {
+        if (isSmoothDragEnabled()) {
+            targetWindowX = targetX
+            targetWindowY = targetY
+            if (!isSmoothFollowerRunning) {
+                isSmoothFollowerRunning = true
+                handler.post(smoothFollower)
+            }
+        } else {
+            handler.removeCallbacks(smoothFollower)
+            isSmoothFollowerRunning = false
+            params.x = targetX
+            params.y = targetY
+            windowManager.updateViewLayout(this, params)
+        }
+    }
+
+    private fun moveTowards(current: Int, target: Int, distance: Int): Int {
+        if (abs(distance) <= smoothDragArrivalDistancePx) return target
+        return current + (distance * smoothDragFollowFraction()).roundToInt()
     }
 
     private fun playRunningDirection() {
@@ -557,6 +655,8 @@ private class PetSpriteView(
         const val failedInputGraceMillis = 500L
         const val inactivityMinMillis = 4_000L
         const val inactivityMaxMillis = 6_000L
+        const val smoothDragFrameDurationMillis = 16L
+        const val smoothDragArrivalDistancePx = 1
     }
 }
 
