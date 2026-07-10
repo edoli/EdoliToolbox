@@ -41,11 +41,13 @@ object PetOverlayController {
     private const val preferencesName = "pet_overlay"
     private const val activePetIdKey = "active_pet_id"
     private const val petSizeDpKey = "pet_size_dp"
+    private const val petCountKey = "pet_count"
     private const val smoothDragKey = "smooth_drag"
     private const val smoothDragFollowFractionKey = "smooth_drag_follow_fraction"
     private const val actionShow = "kr.co.edoli.edolitool.action.SHOW_PET"
     private const val actionHide = "kr.co.edoli.edolitool.action.HIDE_PET"
     private const val actionUpdateSize = "kr.co.edoli.edolitool.action.UPDATE_PET_SIZE"
+    private const val actionUpdateCount = "kr.co.edoli.edolitool.action.UPDATE_PET_COUNT"
     const val extraPetId = "kr.co.edoli.edolitool.extra.PET_ID"
 
     fun activePetId(context: Context): String? =
@@ -69,6 +71,11 @@ object PetOverlayController {
                 Intent(context, PetOverlayService::class.java).setAction(actionUpdateSize),
             )
         }
+    }
+    fun petCount(context: Context) = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).getInt(petCountKey, 1).coerceIn(1, 5)
+    fun updatePetCount(context: Context, count: Int) {
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit().putInt(petCountKey, count.coerceIn(1, 5)).apply()
+        if (activePetId(context) != null) context.startService(Intent(context, PetOverlayService::class.java).setAction(actionUpdateCount))
     }
 
     fun isSmoothDragEnabled(context: Context): Boolean =
@@ -139,6 +146,7 @@ object PetOverlayController {
 class PetOverlayService : Service() {
     private val windowManager by lazy { getSystemService(WindowManager::class.java) }
     private var overlayView: PetSpriteView? = null
+    private val companionViews = mutableListOf<PetSpriteView>()
     private var restoreIndicatorView: PetRestoreIndicatorView? = null
     private var currentPetFiles: CodexPetFiles? = null
     private val petTransitionDistancePx: Float
@@ -165,12 +173,18 @@ class PetOverlayService : Service() {
                 resizePet()
                 return START_STICKY
             }
+            "kr.co.edoli.edolitool.action.UPDATE_PET_COUNT" -> {
+                adjustPetCount()
+                return START_STICKY
+            }
         }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         overlayView?.let { windowManager.removeView(it) }
+        companionViews.forEach { windowManager.removeView(it) }
+        companionViews.clear()
         restoreIndicatorView?.let { windowManager.removeView(it) }
         overlayView = null
         restoreIndicatorView = null
@@ -212,6 +226,8 @@ class PetOverlayService : Service() {
         removeRestoreIndicator: Boolean = true,
     ) {
         overlayView?.let { windowManager.removeView(it) }
+        companionViews.forEach { windowManager.removeView(it) }
+        companionViews.clear()
         if (removeRestoreIndicator) {
             restoreIndicatorView?.let { windowManager.removeView(it) }
             restoreIndicatorView = null
@@ -252,17 +268,52 @@ class PetOverlayService : Service() {
                     .start()
             }
         }
+        repeat(PetOverlayController.petCount(this) - 1) { index ->
+            val offset = resources.displayMetrics.density.times(36 * (index + 1)).roundToInt()
+            PetSpriteView(
+                context = this,
+                spritesheet = BitmapFactory.decodeFile(petFiles.spritesheet.path),
+                isSmoothDragEnabled = { PetOverlayController.isSmoothDragEnabled(this) },
+                smoothDragFollowFraction = { PetOverlayController.smoothDragFollowFraction(this) },
+                onDragFinished = { },
+            ).also { view ->
+                companionViews += view
+                windowManager.addView(
+                    view,
+                    WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
+                        gravity = Gravity.TOP or Gravity.START
+                        x = 24 + offset
+                        y = 160 + offset
+                    },
+                )
+            }
+        }
     }
 
     private fun resizePet() {
-        val view = overlayView ?: return
         val size = resources.displayMetrics.density
             .times(PetOverlayController.petSizeDp(this))
             .roundToInt()
-        val params = view.layoutParams as WindowManager.LayoutParams
-        params.width = size
-        params.height = size
-        windowManager.updateViewLayout(view, params)
+        listOfNotNull(overlayView).plus(companionViews).forEach { view ->
+            val params = view.layoutParams as WindowManager.LayoutParams
+            params.width = size
+            params.height = size
+            windowManager.updateViewLayout(view, params)
+        }
+    }
+
+    private fun adjustPetCount() {
+        val petFiles = currentPetFiles ?: return
+        val desired = PetOverlayController.petCount(this) - 1
+        while (companionViews.size > desired) windowManager.removeView(companionViews.removeLast())
+        while (companionViews.size < desired) {
+            val index = companionViews.size + 1
+            val size = resources.displayMetrics.density.times(PetOverlayController.petSizeDp(this)).roundToInt()
+            val offset = resources.displayMetrics.density.times(36 * index).roundToInt()
+            val view = PetSpriteView(this, BitmapFactory.decodeFile(petFiles.spritesheet.path), { PetOverlayController.isSmoothDragEnabled(this) }, { PetOverlayController.smoothDragFollowFraction(this) }, { })
+            companionViews += view
+            windowManager.addView(view, WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = 24 + offset; y = 160 + offset })
+        }
     }
 
     private fun hidePetIfDraggedOffscreen(params: WindowManager.LayoutParams) {
