@@ -6,6 +6,7 @@ import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Pets
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
@@ -14,6 +15,13 @@ import androidx.compose.ui.graphics.Color
 import kr.co.edoli.edolitool.model.ToolItem
 
 val toolCatalog = listOf(
+    ToolItem(
+        id = "codex_pets",
+        name = "Codex 펫",
+        description = "Codex 펫 ZIP 가져오기 및 설치된 펫 관리",
+        icon = Icons.Rounded.Pets,
+        tint = Color(0xFFDB2777),
+    ),
     ToolItem(
         id = "camera_color_picker",
         name = "카메라 컬러 피커",

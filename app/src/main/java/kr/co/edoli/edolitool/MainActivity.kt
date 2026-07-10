@@ -17,6 +17,7 @@ import kr.co.edoli.edolitool.feature.colorpicker.ImageColorPickerFullscreenRoute
 import kr.co.edoli.edolitool.feature.home.HomeRoute
 import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
 import kr.co.edoli.edolitool.feature.home.toolCatalog
+import kr.co.edoli.edolitool.feature.pets.CodexPetsRoute
 import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
 import kr.co.edoli.edolitool.feature.storage.StorageInspectorRoute
@@ -68,6 +69,10 @@ private fun EdoliToolboxApp(startToolId: String?) {
         ) { backStackEntry ->
             val toolId = backStackEntry.arguments?.getString("toolId").orEmpty()
             when (toolId) {
+                "codex_pets" -> CodexPetsRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
                 "camera_color_picker" -> CameraColorPickerRoute(
                     onBackClick = navController::popBackStack,
                     onOpenCamera = {
