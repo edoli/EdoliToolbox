@@ -165,7 +165,7 @@ private class PetSpriteView(
 ) : View(context) {
     private val handler = Handler(Looper.getMainLooper())
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val directionSwitchDistance = context.resources.displayMetrics.density * 2
+    private val directionSwitchDistance = context.resources.displayMetrics.density * 5
     private var frameIndex = 0
     private var animation = PetAnimation.Idle
     private var downRawX = 0f
