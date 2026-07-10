@@ -34,6 +34,7 @@ import kr.co.edoli.edolitool.MainActivity
 import kr.co.edoli.edolitool.R
 import java.util.ArrayDeque
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -454,6 +455,9 @@ private class PetSpriteView(
     private var targetWindowX = 0
     private var targetWindowY = 0
     private var isSmoothFollowerRunning = false
+    private var isSlidingLook = false
+    private var slidingLookFrames = intArrayOf(4, 5, 4, 3)
+    private var slidingLookIndex = 0
     private var isDragging = false
     private var longPressTriggered = false
     private var suppressTapReaction = false
@@ -500,9 +504,17 @@ private class PetSpriteView(
             windowManager.updateViewLayout(this@PetSpriteView, params)
             if (params.x == targetWindowX && params.y == targetWindowY) {
                 isSmoothFollowerRunning = false
+                stopSlidingLook()
             } else {
                 handler.postDelayed(this, smoothDragFrameDurationMillis)
             }
+        }
+    }
+    private val slidingLook = object : Runnable {
+        override fun run() {
+            slidingLookIndex = (slidingLookIndex + 1) % slidingLookFrames.size
+            invalidate()
+            handler.postDelayed(this, 120L)
         }
     }
 
@@ -517,11 +529,13 @@ private class PetSpriteView(
     }
 
     override fun onDraw(canvas: Canvas) {
+        val lookFrame = if (isSlidingLook) slidingLookFrames[slidingLookIndex] else null
+        val spriteColumn = lookFrame?.rem(8) ?: frameIndex
         val source = Rect(
-            frameIndex * cellWidth,
-            animation.row * cellHeight,
-            (frameIndex + 1) * cellWidth,
-            (animation.row + 1) * cellHeight,
+            spriteColumn * cellWidth,
+            (if (lookFrame == null) animation.row else if (lookFrame < 8) 9 else 10) * cellHeight,
+            (spriteColumn + 1) * cellWidth,
+            (if (lookFrame == null) animation.row + 1 else if (lookFrame < 8) 10 else 11) * cellHeight,
         )
         canvas.drawBitmap(spritesheet, source, Rect(0, 0, width, height), null)
     }
@@ -590,7 +604,11 @@ private class PetSpriteView(
                             params
                         }
                         onDragFinished(endParams)
-                        play(PetAnimation.Idle)
+                        if (isSmoothDragEnabled() && isSmoothFollowerRunning) {
+                            startSlidingLook(targetWindowX - params.x, targetWindowY - params.y)
+                        } else {
+                            play(PetAnimation.Idle)
+                        }
                     }
 
                     !suppressTapReaction && !longPressTriggered -> {
@@ -656,6 +674,30 @@ private class PetSpriteView(
     private fun moveTowards(current: Int, target: Int, distance: Int): Int {
         if (abs(distance) <= smoothDragArrivalDistancePx) return target
         return current + (distance * smoothDragFollowFraction()).roundToInt()
+    }
+
+    private fun startSlidingLook(horizontalDistance: Int, verticalDistance: Int) {
+        isSlidingLook = true
+        val degrees = Math.toDegrees(atan2(horizontalDistance.toDouble(), -verticalDistance.toDouble()))
+        val baseDirection = ((degrees / 22.5).roundToInt() + 16) % 16
+        slidingLookFrames = intArrayOf(
+            baseDirection,
+            (baseDirection + 1) % 16,
+            baseDirection,
+            (baseDirection + 15) % 16,
+        )
+        slidingLookIndex = 0
+        handler.removeCallbacks(advanceAnimation)
+        handler.removeCallbacks(slidingLook)
+        handler.post(slidingLook)
+        invalidate()
+    }
+
+    private fun stopSlidingLook() {
+        if (!isSlidingLook) return
+        isSlidingLook = false
+        handler.removeCallbacks(slidingLook)
+        play(PetAnimation.Idle)
     }
 
     private fun playRunningDirection() {
