@@ -29,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -54,6 +55,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,6 +66,7 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
     var pets by remember { mutableStateOf(CodexPetRepository.installedPets(context)) }
     var isImporting by remember { mutableStateOf(false) }
     var activePetId by remember { mutableStateOf(PetOverlayController.activePetId(context)) }
+    var petSizeDp by remember { mutableStateOf(PetOverlayController.petSizeDp(context).toFloat()) }
     val zipPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -107,6 +110,19 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                 ImportCard(
                     isImporting = isImporting,
                     onImport = { zipPicker.launch(arrayOf("application/zip", "application/x-zip-compressed")) },
+                )
+            }
+            item {
+                PetSizeCard(
+                    sizeDp = petSizeDp,
+                    onSizeChange = { petSizeDp = it },
+                    onSizeChangeFinished = {
+                        PetOverlayController.updatePetSize(context, petSizeDp.roundToInt())
+                    },
+                    onReset = {
+                        petSizeDp = PetOverlayController.defaultPetSizeDp.toFloat()
+                        PetOverlayController.updatePetSize(context, PetOverlayController.defaultPetSizeDp)
+                    },
                 )
             }
             if (pets.isEmpty()) {
@@ -159,13 +175,42 @@ private fun ImportCard(isImporting: Boolean, onImport: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("펫 ZIP 가져오기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(
-                "ZIP 안의 pet.json과 spritesheet.webp를 검사해 Codex 펫 v2로 설치합니다.",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Button(onClick = onImport, enabled = !isImporting) {
                 Icon(Icons.Rounded.UploadFile, contentDescription = null)
                 Text(if (isImporting) "가져오는 중…" else "ZIP 파일 선택", modifier = Modifier.padding(start = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun PetSizeCard(
+    sizeDp: Float,
+    onSizeChange: (Float) -> Unit,
+    onSizeChangeFinished: () -> Unit,
+    onReset: () -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("펫 크기", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(
+                text = "${sizeDp.roundToInt()}dp",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = sizeDp,
+                onValueChange = onSizeChange,
+                onValueChangeFinished = onSizeChangeFinished,
+                valueRange = PetOverlayController.minPetSizeDp.toFloat()..PetOverlayController.maxPetSizeDp.toFloat(),
+            )
+            Button(onClick = onReset) {
+                Text("기본 크기로 재설정")
             }
         }
     }

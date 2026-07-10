@@ -7,11 +7,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
@@ -35,8 +39,10 @@ import kotlin.random.Random
 object PetOverlayController {
     private const val preferencesName = "pet_overlay"
     private const val activePetIdKey = "active_pet_id"
+    private const val petSizeDpKey = "pet_size_dp"
     private const val actionShow = "kr.co.edoli.edolitool.action.SHOW_PET"
     private const val actionHide = "kr.co.edoli.edolitool.action.HIDE_PET"
+    private const val actionUpdateSize = "kr.co.edoli.edolitool.action.UPDATE_PET_SIZE"
     const val extraPetId = "kr.co.edoli.edolitool.extra.PET_ID"
 
     fun activePetId(context: Context): String? =
@@ -44,6 +50,23 @@ object PetOverlayController {
             .getString(activePetIdKey, null)
 
     fun canDrawOverApps(context: Context): Boolean = Settings.canDrawOverlays(context)
+
+    fun petSizeDp(context: Context): Int =
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .getInt(petSizeDpKey, defaultPetSizeDp)
+
+    fun updatePetSize(context: Context, sizeDp: Int) {
+        val clampedSize = sizeDp.coerceIn(minPetSizeDp, maxPetSizeDp)
+        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(petSizeDpKey, clampedSize)
+            .apply()
+        if (activePetId(context) != null) {
+            context.startService(
+                Intent(context, PetOverlayService::class.java).setAction(actionUpdateSize),
+            )
+        }
+    }
 
     fun openOverlayPermission(context: Context) {
         context.startActivity(
@@ -75,11 +98,19 @@ object PetOverlayController {
             .putString(activePetIdKey, petId)
             .apply()
     }
+
+    const val minPetSizeDp = 64
+    const val maxPetSizeDp = 512
+    const val defaultPetSizeDp = 112
 }
 
 class PetOverlayService : Service() {
     private val windowManager by lazy { getSystemService(WindowManager::class.java) }
     private var overlayView: PetSpriteView? = null
+    private var restoreIndicatorView: PetRestoreIndicatorView? = null
+    private var currentPetFiles: CodexPetFiles? = null
+    private val petTransitionDistancePx: Float
+        get() = resources.displayMetrics.density * 32
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -97,23 +128,71 @@ class PetOverlayService : Service() {
                 PetOverlayController.setActivePetId(this, petId)
                 return START_STICKY
             }
+
+            actionUpdateSize -> {
+                resizePet()
+                return START_STICKY
+            }
         }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
         overlayView?.let { windowManager.removeView(it) }
+        restoreIndicatorView?.let { windowManager.removeView(it) }
         overlayView = null
+        restoreIndicatorView = null
         PetOverlayController.setActivePetId(this, null)
         super.onDestroy()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        overlayView?.let { view ->
+            val params = view.layoutParams as WindowManager.LayoutParams
+            if (hiddenSide(params) != null) {
+                hidePetIfDraggedOffscreen(params)
+            } else {
+                params.x = params.x.coerceIn(0, (resources.displayMetrics.widthPixels - params.width).coerceAtLeast(0))
+                params.y = params.y.coerceIn(
+                    indicatorMarginPx,
+                    (resources.displayMetrics.heightPixels - params.height - indicatorMarginPx).coerceAtLeast(indicatorMarginPx),
+                )
+                windowManager.updateViewLayout(view, params)
+            }
+        }
+        restoreIndicatorView?.let { view ->
+            val params = view.layoutParams as WindowManager.LayoutParams
+            params.x = if (view.side == HiddenSide.Left) 0 else resources.displayMetrics.widthPixels - params.width
+            params.y = params.y.coerceIn(
+                indicatorMarginPx,
+                (resources.displayMetrics.heightPixels - params.height - indicatorMarginPx).coerceAtLeast(indicatorMarginPx),
+            )
+            windowManager.updateViewLayout(view, params)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun showPet(petFiles: CodexPetFiles) {
+    private fun showPet(
+        petFiles: CodexPetFiles,
+        appearingFrom: HiddenSide? = null,
+        removeRestoreIndicator: Boolean = true,
+    ) {
         overlayView?.let { windowManager.removeView(it) }
-        val size = resources.displayMetrics.density.times(112).roundToInt()
-        overlayView = PetSpriteView(this, BitmapFactory.decodeFile(petFiles.spritesheet.path)).also { view ->
+        if (removeRestoreIndicator) {
+            restoreIndicatorView?.let { windowManager.removeView(it) }
+            restoreIndicatorView = null
+        }
+        currentPetFiles = petFiles
+        val size = resources.displayMetrics.density
+            .times(PetOverlayController.petSizeDp(this))
+            .roundToInt()
+        overlayView = PetSpriteView(
+            context = this,
+            spritesheet = BitmapFactory.decodeFile(petFiles.spritesheet.path),
+            onDragFinished = ::hidePetIfDraggedOffscreen,
+        ).also { view ->
             windowManager.addView(
                 view,
                 WindowManager.LayoutParams(
@@ -129,7 +208,104 @@ class PetOverlayService : Service() {
                     y = 160
                 },
             )
+            if (appearingFrom != null) {
+                view.alpha = 0f
+                view.translationX = if (appearingFrom == HiddenSide.Left) -petTransitionDistancePx else petTransitionDistancePx
+                view.animate()
+                    .alpha(1f)
+                    .translationX(0f)
+                    .setDuration(petTransitionDurationMillis)
+                    .start()
+            }
         }
+    }
+
+    private fun resizePet() {
+        val view = overlayView ?: return
+        val size = resources.displayMetrics.density
+            .times(PetOverlayController.petSizeDp(this))
+            .roundToInt()
+        val params = view.layoutParams as WindowManager.LayoutParams
+        params.width = size
+        params.height = size
+        windowManager.updateViewLayout(view, params)
+    }
+
+    private fun hidePetIfDraggedOffscreen(params: WindowManager.LayoutParams) {
+        val side = hiddenSide(params) ?: return
+        val view = overlayView ?: return
+        overlayView = null
+        showRestoreIndicator(side, params.y)
+        view.animate()
+            .alpha(0f)
+            .translationXBy(if (side == HiddenSide.Left) -petTransitionDistancePx else petTransitionDistancePx)
+            .setDuration(petTransitionDurationMillis)
+            .withEndAction {
+                windowManager.removeView(view)
+            }
+            .start()
+    }
+
+    private fun hiddenSide(params: WindowManager.LayoutParams): HiddenSide? {
+        return when {
+            params.x <= -(params.width * hiddenFraction) -> HiddenSide.Left
+            params.x >= resources.displayMetrics.widthPixels - (params.width * (1 - hiddenFraction)) -> HiddenSide.Right
+            else -> null
+        }
+    }
+
+    private fun showRestoreIndicator(side: HiddenSide, petY: Int) {
+        restoreIndicatorView?.let { windowManager.removeView(it) }
+        val indicatorWidth = resources.displayMetrics.density.times(indicatorWidthDp).roundToInt()
+        val indicatorHeight = resources.displayMetrics.density.times(indicatorHeightDp).roundToInt()
+        val screenHeight = resources.displayMetrics.heightPixels
+        restoreIndicatorView = PetRestoreIndicatorView(this, side, ::restorePet).also { view ->
+            windowManager.addView(
+                view,
+                WindowManager.LayoutParams(
+                    indicatorWidth,
+                    indicatorHeight,
+                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                    PixelFormat.TRANSLUCENT,
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    x = if (side == HiddenSide.Left) 0 else resources.displayMetrics.widthPixels - indicatorWidth
+                    y = petY.coerceIn(indicatorMarginPx, screenHeight - indicatorHeight - indicatorMarginPx)
+                },
+            )
+            view.alpha = 0f
+            view.animate().alpha(1f).setDuration(indicatorTransitionDurationMillis).start()
+        }
+    }
+
+    private fun restorePet() {
+        val petFiles = currentPetFiles ?: return
+        val indicator = restoreIndicatorView ?: return
+        val side = indicator.side
+        val indicatorParams = indicator.layoutParams as WindowManager.LayoutParams
+        showPet(
+            petFiles = petFiles,
+            appearingFrom = side,
+            removeRestoreIndicator = false,
+        )
+        overlayView?.let { view ->
+            val params = view.layoutParams as WindowManager.LayoutParams
+            params.x = if (side == HiddenSide.Left) 0 else resources.displayMetrics.widthPixels - params.width
+            params.y = indicatorParams.y.coerceIn(
+                indicatorMarginPx,
+                resources.displayMetrics.heightPixels - params.height - indicatorMarginPx,
+            )
+            windowManager.updateViewLayout(view, params)
+        }
+        indicator.animate()
+            .alpha(0f)
+            .setDuration(indicatorTransitionDurationMillis)
+            .withEndAction {
+                if (restoreIndicatorView === indicator) restoreIndicatorView = null
+                windowManager.removeView(indicator)
+            }
+            .start()
     }
 
     private fun createNotification(petName: String): Notification {
@@ -154,14 +330,27 @@ class PetOverlayService : Service() {
     private companion object {
         const val actionShow = "kr.co.edoli.edolitool.action.SHOW_PET"
         const val actionHide = "kr.co.edoli.edolitool.action.HIDE_PET"
+        const val actionUpdateSize = "kr.co.edoli.edolitool.action.UPDATE_PET_SIZE"
         const val channelId = "pet_overlay"
         const val notificationId = 1101
+        const val hiddenFraction = 2f / 3f
+        const val indicatorWidthDp = 32
+        const val indicatorHeightDp = 72
+        const val indicatorMarginPx = 16
+        const val petTransitionDurationMillis = 160L
+        const val indicatorTransitionDurationMillis = 160L
     }
+}
+
+private enum class HiddenSide {
+    Left,
+    Right,
 }
 
 private class PetSpriteView(
     context: Context,
     private val spritesheet: Bitmap,
+    private val onDragFinished: (WindowManager.LayoutParams) -> Unit,
 ) : View(context) {
     private val handler = Handler(Looper.getMainLooper())
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -277,6 +466,7 @@ private class PetSpriteView(
                 when {
                     isDragging -> {
                         isDragging = false
+                        onDragFinished(params)
                         play(PetAnimation.Idle)
                     }
 
@@ -367,6 +557,31 @@ private class PetSpriteView(
         const val failedInputGraceMillis = 500L
         const val inactivityMinMillis = 4_000L
         const val inactivityMaxMillis = 6_000L
+    }
+}
+
+private class PetRestoreIndicatorView(
+    context: Context,
+    val side: HiddenSide,
+    private val onRestore: () -> Unit,
+) : View(context) {
+    private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(190, 30, 30, 30)
+    }
+    private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = context.resources.displayMetrics.density * 28
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        canvas.drawRoundRect(RectF(0f, 0f, width.toFloat(), height.toFloat()), width / 2f, width / 2f, backgroundPaint)
+        canvas.drawText(if (side == HiddenSide.Left) "›" else "‹", width / 2f, height / 2f - (arrowPaint.ascent() + arrowPaint.descent()) / 2f, arrowPaint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_UP) onRestore()
+        return true
     }
 }
 
