@@ -13,6 +13,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
@@ -130,7 +131,7 @@ object PetOverlayController {
     const val minPetSizeDp = 32
     const val maxPetSizeDp = 512
     const val defaultPetSizeDp = 112
-    const val minSmoothDragFollowFraction = 0.12f
+    const val minSmoothDragFollowFraction = 0.02f
     const val maxSmoothDragFollowFraction = 0.50f
     const val defaultSmoothDragFollowFraction = 0.28f
 }
@@ -367,7 +368,7 @@ class PetOverlayService : Service() {
         const val channelId = "pet_overlay"
         const val notificationId = 1101
         const val hiddenFraction = 2f / 3f
-        const val indicatorWidthDp = 32
+        const val indicatorWidthDp = 24
         const val indicatorHeightDp = 72
         const val indicatorMarginPx = 16
         const val petTransitionDurationMillis = 160L
@@ -670,18 +671,40 @@ private class PetRestoreIndicatorView(
     }
     private val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
-        textAlign = Paint.Align.CENTER
-        textSize = context.resources.displayMetrics.density * 28
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
 
     override fun onDraw(canvas: Canvas) {
         canvas.drawRoundRect(RectF(0f, 0f, width.toFloat(), height.toFloat()), width / 2f, width / 2f, backgroundPaint)
-        canvas.drawText(if (side == HiddenSide.Left) "›" else "‹", width / 2f, height / 2f - (arrowPaint.ascent() + arrowPaint.descent()) / 2f, arrowPaint)
+        val centerX = width / 2f
+        val centerY = height / 2f
+        val chevronFullSize = width * chevronSizeFraction
+        val chevronHalfSize = chevronFullSize / 2f
+        arrowPaint.strokeWidth = width * chevronStrokeFraction
+        val chevron = Path().apply {
+            if (side == HiddenSide.Left) {
+                moveTo(centerX - chevronHalfSize, centerY - chevronFullSize)
+                lineTo(centerX + chevronHalfSize, centerY)
+                lineTo(centerX - chevronHalfSize, centerY + chevronFullSize)
+            } else {
+                moveTo(centerX + chevronHalfSize, centerY - chevronFullSize)
+                lineTo(centerX - chevronHalfSize, centerY)
+                lineTo(centerX + chevronHalfSize, centerY + chevronFullSize)
+            }
+        }
+        canvas.drawPath(chevron, arrowPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) onRestore()
         return true
+    }
+
+    private companion object {
+        const val chevronSizeFraction = 0.25f
+        const val chevronStrokeFraction = 0.08f
     }
 }
 
