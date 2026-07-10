@@ -672,7 +672,7 @@ private class PetSpriteView(
     }
 
     private fun moveTowards(current: Int, target: Int, distance: Int): Int {
-        if (abs(distance) <= smoothDragArrivalDistancePx) return target
+        if (abs(distance) <= smoothDragArrivalDistancePx / smoothDragFollowFraction()) return target
         return current + (distance * smoothDragFollowFraction()).roundToInt()
     }
 
