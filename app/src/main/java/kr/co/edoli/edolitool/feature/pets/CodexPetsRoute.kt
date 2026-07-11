@@ -66,9 +66,8 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
     val snackbarHostState = remember { SnackbarHostState() }
     var pets by remember { mutableStateOf(CodexPetRepository.installedPets(context)) }
     var isImporting by remember { mutableStateOf(false) }
-    var activePetId by remember { mutableStateOf(PetOverlayController.activePetId(context)) }
+    var activePetIds by remember { mutableStateOf(PetOverlayController.activePetIds(context)) }
     var petSizeDp by remember { mutableStateOf(PetOverlayController.petSizeDp(context).toFloat()) }
-    var petCount by remember { mutableStateOf(PetOverlayController.petCount(context).toFloat()) }
     var isSmoothDragEnabled by remember { mutableStateOf(PetOverlayController.isSmoothDragEnabled(context)) }
     var smoothDragFollowFraction by remember {
         mutableStateOf(PetOverlayController.smoothDragFollowFraction(context))
@@ -132,9 +131,6 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                 )
             }
             item {
-                PetCountCard(petCount, { petCount = it }, { PetOverlayController.updatePetCount(context, petCount.roundToInt()) })
-            }
-            item {
                 SmoothDragCard(
                     enabled = isSmoothDragEnabled,
                     onEnabledChange = { enabled ->
@@ -162,11 +158,11 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                 items(pets, key = { it.id }) { pet ->
                     PetCard(
                         pet = pet,
-                        isActive = activePetId == pet.id,
+                        isActive = pet.id in activePetIds,
                         onShow = {
                             if (PetOverlayController.canDrawOverApps(context)) {
                                 PetOverlayController.show(context, pet.id)
-                                activePetId = pet.id
+                                activePetIds = activePetIds + pet.id
                             } else {
                                 PetOverlayController.openOverlayPermission(context)
                                 scope.launch {
@@ -177,23 +173,12 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                             }
                         },
                         onHide = {
-                            PetOverlayController.hide(context)
-                            activePetId = null
+                            PetOverlayController.hide(context, pet.id)
+                            activePetIds = activePetIds - pet.id
                         },
                     )
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PetCountCard(count: Float, onChange: (Float) -> Unit, onFinished: () -> Unit) {
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("화면 펫 수", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text("${count.roundToInt()}마리", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Slider(count, onChange, onValueChangeFinished = onFinished, valueRange = 1f..5f, steps = 3)
         }
     }
 }

@@ -40,20 +40,20 @@ import kotlin.random.Random
 
 object PetOverlayController {
     private const val preferencesName = "pet_overlay"
-    private const val activePetIdKey = "active_pet_id"
+    private const val activePetIdsKey = "active_pet_ids"
     private const val petSizeDpKey = "pet_size_dp"
-    private const val petCountKey = "pet_count"
     private const val smoothDragKey = "smooth_drag"
     private const val smoothDragFollowFractionKey = "smooth_drag_follow_fraction"
     private const val actionShow = "kr.co.edoli.edolitool.action.SHOW_PET"
     private const val actionHide = "kr.co.edoli.edolitool.action.HIDE_PET"
     private const val actionUpdateSize = "kr.co.edoli.edolitool.action.UPDATE_PET_SIZE"
-    private const val actionUpdateCount = "kr.co.edoli.edolitool.action.UPDATE_PET_COUNT"
     const val extraPetId = "kr.co.edoli.edolitool.extra.PET_ID"
 
-    fun activePetId(context: Context): String? =
+    fun activePetIds(context: Context): Set<String> =
         context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
-            .getString(activePetIdKey, null)
+            .getStringSet(activePetIdsKey, emptySet())
+            .orEmpty()
+            .toSet()
 
     fun canDrawOverApps(context: Context): Boolean = Settings.canDrawOverlays(context)
 
@@ -67,18 +67,12 @@ object PetOverlayController {
             .edit()
             .putInt(petSizeDpKey, clampedSize)
             .apply()
-        if (activePetId(context) != null) {
+        if (activePetIds(context).isNotEmpty()) {
             context.startService(
                 Intent(context, PetOverlayService::class.java).setAction(actionUpdateSize),
             )
         }
     }
-    fun petCount(context: Context) = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).getInt(petCountKey, 1).coerceIn(1, 5)
-    fun updatePetCount(context: Context, count: Int) {
-        context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE).edit().putInt(petCountKey, count.coerceIn(1, 5)).apply()
-        if (activePetId(context) != null) context.startService(Intent(context, PetOverlayService::class.java).setAction(actionUpdateCount))
-    }
-
     fun isSmoothDragEnabled(context: Context): Boolean =
         context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
             .getBoolean(smoothDragKey, true)
@@ -123,16 +117,18 @@ object PetOverlayController {
         )
     }
 
-    fun hide(context: Context) {
+    fun hide(context: Context, petId: String? = null) {
         context.startService(
-            Intent(context, PetOverlayService::class.java).setAction(actionHide),
+            Intent(context, PetOverlayService::class.java)
+                .setAction(actionHide)
+                .apply { petId?.let { putExtra(extraPetId, it) } },
         )
     }
 
-    internal fun setActivePetId(context: Context, petId: String?) {
+    internal fun setActivePetIds(context: Context, petIds: Set<String>) {
         context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
             .edit()
-            .putString(activePetIdKey, petId)
+            .putStringSet(activePetIdsKey, petIds)
             .apply()
     }
 
@@ -146,17 +142,22 @@ object PetOverlayController {
 
 class PetOverlayService : Service() {
     private val windowManager by lazy { getSystemService(WindowManager::class.java) }
-    private var overlayView: PetSpriteView? = null
-    private val companionViews = mutableListOf<PetSpriteView>()
+    private val overlayViews = mutableMapOf<String, PetSpriteView>()
     private var restoreIndicatorView: PetRestoreIndicatorView? = null
-    private var currentPetFiles: CodexPetFiles? = null
+    private var hiddenPetFiles: CodexPetFiles? = null
     private val petTransitionDistancePx: Float
         get() = resources.displayMetrics.density * 32
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             actionHide -> {
-                stopSelf()
+                val petId = intent.getStringExtra(PetOverlayController.extraPetId)
+                if (petId == null) {
+                    stopSelf()
+                } else {
+                    removePet(petId)
+                    if (overlayViews.isEmpty()) stopSelf()
+                }
                 return START_NOT_STICKY
             }
 
@@ -164,9 +165,9 @@ class PetOverlayService : Service() {
                 val petId = intent.getStringExtra(PetOverlayController.extraPetId) ?: return START_NOT_STICKY
                 if (!PetOverlayController.canDrawOverApps(this)) return START_NOT_STICKY
                 val petFiles = CodexPetRepository.findPetFiles(this, petId) ?: return START_NOT_STICKY
-                startForeground(notificationId, createNotification(petFiles.pet.displayName))
+                if (overlayViews.isEmpty()) startForeground(notificationId, createNotification())
                 showPet(petFiles)
-                PetOverlayController.setActivePetId(this, petId)
+                updateActivePets()
                 return START_STICKY
             }
 
@@ -174,31 +175,27 @@ class PetOverlayService : Service() {
                 resizePet()
                 return START_STICKY
             }
-            "kr.co.edoli.edolitool.action.UPDATE_PET_COUNT" -> {
-                adjustPetCount()
-                return START_STICKY
-            }
         }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        overlayView?.let { windowManager.removeView(it) }
-        companionViews.forEach { windowManager.removeView(it) }
-        companionViews.clear()
+        overlayViews.values.forEach { windowManager.removeView(it) }
+        overlayViews.clear()
         restoreIndicatorView?.let { windowManager.removeView(it) }
-        overlayView = null
         restoreIndicatorView = null
-        PetOverlayController.setActivePetId(this, null)
+        PetOverlayController.setActivePetIds(this, emptySet())
         super.onDestroy()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        overlayView?.let { view ->
+        overlayViews.toList().forEach { (petId, view) ->
             val params = view.layoutParams as WindowManager.LayoutParams
             if (hiddenSide(params) != null) {
-                hidePetIfDraggedOffscreen(params)
+                CodexPetRepository.findPetFiles(this, petId)?.let { petFiles ->
+                    hidePetIfDraggedOffscreen(petFiles, params)
+                }
             } else {
                 params.x = params.x.coerceIn(0, (resources.displayMetrics.widthPixels - params.width).coerceAtLeast(0))
                 params.y = params.y.coerceIn(
@@ -226,68 +223,39 @@ class PetOverlayService : Service() {
         appearingFrom: HiddenSide? = null,
         removeRestoreIndicator: Boolean = true,
     ) {
-        overlayView?.let { windowManager.removeView(it) }
-        companionViews.forEach { windowManager.removeView(it) }
-        companionViews.clear()
+        removePet(petFiles.pet.id, updateState = false)
         if (removeRestoreIndicator) {
             restoreIndicatorView?.let { windowManager.removeView(it) }
             restoreIndicatorView = null
         }
-        currentPetFiles = petFiles
         val size = resources.displayMetrics.density
             .times(PetOverlayController.petSizeDp(this))
             .roundToInt()
-        overlayView = PetSpriteView(
+        val view = PetSpriteView(
             context = this,
             spritesheet = BitmapFactory.decodeFile(petFiles.spritesheet.path),
             isSmoothDragEnabled = { PetOverlayController.isSmoothDragEnabled(this) },
             smoothDragFollowFraction = { PetOverlayController.smoothDragFollowFraction(this) },
-            onDragFinished = ::hidePetIfDraggedOffscreen,
-        ).also { view ->
-            windowManager.addView(
-                view,
-                WindowManager.LayoutParams(
-                    size,
-                    size,
-                    WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                    PixelFormat.TRANSLUCENT,
-                ).apply {
-                    gravity = Gravity.TOP or Gravity.START
-                    x = 24
-                    y = 160
-                },
-            )
-            if (appearingFrom != null) {
-                view.alpha = 0f
-                view.translationX = if (appearingFrom == HiddenSide.Left) -petTransitionDistancePx else petTransitionDistancePx
-                view.animate()
-                    .alpha(1f)
-                    .translationX(0f)
-                    .setDuration(petTransitionDurationMillis)
-                    .start()
-            }
-        }
-        repeat(PetOverlayController.petCount(this) - 1) { index ->
-            val offset = resources.displayMetrics.density.times(36 * (index + 1)).roundToInt()
-            PetSpriteView(
-                context = this,
-                spritesheet = BitmapFactory.decodeFile(petFiles.spritesheet.path),
-                isSmoothDragEnabled = { PetOverlayController.isSmoothDragEnabled(this) },
-                smoothDragFollowFraction = { PetOverlayController.smoothDragFollowFraction(this) },
-                onDragFinished = { },
-            ).also { view ->
-                companionViews += view
-                windowManager.addView(
-                    view,
-                    WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
-                        gravity = Gravity.TOP or Gravity.START
-                        x = 24 + offset
-                        y = 160 + offset
-                    },
-                )
-            }
+            onDragFinished = { params -> hidePetIfDraggedOffscreen(petFiles, params) },
+        )
+        overlayViews[petFiles.pet.id] = view
+        val offset = resources.displayMetrics.density.times(36 * (overlayViews.size - 1)).roundToInt()
+        windowManager.addView(
+            view,
+            WindowManager.LayoutParams(
+                size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = 24 + offset
+                y = 160 + offset
+            },
+        )
+        if (appearingFrom != null) {
+            view.alpha = 0f
+            view.translationX = if (appearingFrom == HiddenSide.Left) -petTransitionDistancePx else petTransitionDistancePx
+            view.animate().alpha(1f).translationX(0f).setDuration(petTransitionDurationMillis).start()
         }
     }
 
@@ -295,7 +263,7 @@ class PetOverlayService : Service() {
         val size = resources.displayMetrics.density
             .times(PetOverlayController.petSizeDp(this))
             .roundToInt()
-        listOfNotNull(overlayView).plus(companionViews).forEach { view ->
+        overlayViews.values.forEach { view ->
             val params = view.layoutParams as WindowManager.LayoutParams
             params.width = size
             params.height = size
@@ -303,24 +271,11 @@ class PetOverlayService : Service() {
         }
     }
 
-    private fun adjustPetCount() {
-        val petFiles = currentPetFiles ?: return
-        val desired = PetOverlayController.petCount(this) - 1
-        while (companionViews.size > desired) windowManager.removeView(companionViews.removeLast())
-        while (companionViews.size < desired) {
-            val index = companionViews.size + 1
-            val size = resources.displayMetrics.density.times(PetOverlayController.petSizeDp(this)).roundToInt()
-            val offset = resources.displayMetrics.density.times(36 * index).roundToInt()
-            val view = PetSpriteView(this, BitmapFactory.decodeFile(petFiles.spritesheet.path), { PetOverlayController.isSmoothDragEnabled(this) }, { PetOverlayController.smoothDragFollowFraction(this) }, { })
-            companionViews += view
-            windowManager.addView(view, WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = 24 + offset; y = 160 + offset })
-        }
-    }
-
-    private fun hidePetIfDraggedOffscreen(params: WindowManager.LayoutParams) {
+    private fun hidePetIfDraggedOffscreen(petFiles: CodexPetFiles, params: WindowManager.LayoutParams) {
         val side = hiddenSide(params) ?: return
-        val view = overlayView ?: return
-        overlayView = null
+        val view = overlayViews.remove(petFiles.pet.id) ?: return
+        hiddenPetFiles = petFiles
+        updateActivePets()
         showRestoreIndicator(side, params.y)
         view.animate()
             .alpha(0f)
@@ -366,7 +321,7 @@ class PetOverlayService : Service() {
     }
 
     private fun restorePet() {
-        val petFiles = currentPetFiles ?: return
+        val petFiles = hiddenPetFiles ?: return
         val indicator = restoreIndicatorView ?: return
         val side = indicator.side
         val indicatorParams = indicator.layoutParams as WindowManager.LayoutParams
@@ -375,7 +330,7 @@ class PetOverlayService : Service() {
             appearingFrom = side,
             removeRestoreIndicator = false,
         )
-        overlayView?.let { view ->
+        overlayViews[petFiles.pet.id]?.let { view ->
             val params = view.layoutParams as WindowManager.LayoutParams
             params.x = if (side == HiddenSide.Left) 0 else resources.displayMetrics.widthPixels - params.width
             params.y = indicatorParams.y.coerceIn(
@@ -392,9 +347,20 @@ class PetOverlayService : Service() {
                 windowManager.removeView(indicator)
             }
             .start()
+        updateActivePets()
     }
 
-    private fun createNotification(petName: String): Notification {
+    private fun removePet(petId: String, updateState: Boolean = true) {
+        overlayViews.remove(petId)?.let { windowManager.removeView(it) }
+        if (updateState) updateActivePets()
+    }
+
+    private fun updateActivePets() {
+        PetOverlayController.setActivePetIds(this, overlayViews.keys.toSet())
+        getSystemService(NotificationManager::class.java).notify(notificationId, createNotification())
+    }
+
+    private fun createNotification(): Notification {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(channelId, "화면 펫", NotificationManager.IMPORTANCE_LOW),
         )
@@ -406,7 +372,7 @@ class PetOverlayService : Service() {
         )
         return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("$petName 펫 표시 중")
+            .setContentTitle("${overlayViews.size}마리 펫 표시 중")
             .setContentText("Codex 펫 화면 오버레이가 실행 중입니다.")
             .setContentIntent(pendingIntent)
             .setOngoing(true)
