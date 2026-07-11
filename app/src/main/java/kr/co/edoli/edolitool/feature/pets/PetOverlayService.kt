@@ -143,8 +143,8 @@ object PetOverlayController {
 class PetOverlayService : Service() {
     private val windowManager by lazy { getSystemService(WindowManager::class.java) }
     private val overlayViews = mutableMapOf<String, PetSpriteView>()
-    private var restoreIndicatorView: PetRestoreIndicatorView? = null
-    private var hiddenPetFiles: CodexPetFiles? = null
+    private val restoreIndicatorViews = mutableMapOf<String, PetRestoreIndicatorView>()
+    private val hiddenPetFiles = mutableMapOf<String, CodexPetFiles>()
     private val petTransitionDistancePx: Float
         get() = resources.displayMetrics.density * 32
 
@@ -182,8 +182,9 @@ class PetOverlayService : Service() {
     override fun onDestroy() {
         overlayViews.values.forEach { windowManager.removeView(it) }
         overlayViews.clear()
-        restoreIndicatorView?.let { windowManager.removeView(it) }
-        restoreIndicatorView = null
+        restoreIndicatorViews.values.forEach { windowManager.removeView(it) }
+        restoreIndicatorViews.clear()
+        hiddenPetFiles.clear()
         PetOverlayController.setActivePetIds(this, emptySet())
         super.onDestroy()
     }
@@ -205,7 +206,7 @@ class PetOverlayService : Service() {
                 windowManager.updateViewLayout(view, params)
             }
         }
-        restoreIndicatorView?.let { view ->
+        restoreIndicatorViews.values.forEach { view ->
             val params = view.layoutParams as WindowManager.LayoutParams
             params.x = if (view.side == HiddenSide.Left) 0 else resources.displayMetrics.widthPixels - params.width
             params.y = params.y.coerceIn(
@@ -223,10 +224,13 @@ class PetOverlayService : Service() {
         appearingFrom: HiddenSide? = null,
         removeRestoreIndicator: Boolean = true,
     ) {
-        removePet(petFiles.pet.id, updateState = false)
+        removePet(
+            petId = petFiles.pet.id,
+            updateState = false,
+            removeIndicator = removeRestoreIndicator,
+        )
         if (removeRestoreIndicator) {
-            restoreIndicatorView?.let { windowManager.removeView(it) }
-            restoreIndicatorView = null
+            removeRestoreIndicator(petFiles.pet.id)
         }
         val size = resources.displayMetrics.density
             .times(PetOverlayController.petSizeDp(this))
@@ -274,9 +278,9 @@ class PetOverlayService : Service() {
     private fun hidePetIfDraggedOffscreen(petFiles: CodexPetFiles, params: WindowManager.LayoutParams) {
         val side = hiddenSide(params) ?: return
         val view = overlayViews.remove(petFiles.pet.id) ?: return
-        hiddenPetFiles = petFiles
+        hiddenPetFiles[petFiles.pet.id] = petFiles
         updateActivePets()
-        showRestoreIndicator(side, params.y)
+        showRestoreIndicator(petFiles, side, params.y)
         view.animate()
             .alpha(0f)
             .translationXBy(if (side == HiddenSide.Left) -petTransitionDistancePx else petTransitionDistancePx)
@@ -295,12 +299,13 @@ class PetOverlayService : Service() {
         }
     }
 
-    private fun showRestoreIndicator(side: HiddenSide, petY: Int) {
-        restoreIndicatorView?.let { windowManager.removeView(it) }
+    private fun showRestoreIndicator(petFiles: CodexPetFiles, side: HiddenSide, petY: Int) {
+        removeRestoreIndicator(petFiles.pet.id)
         val indicatorWidth = resources.displayMetrics.density.times(indicatorWidthDp).roundToInt()
         val indicatorHeight = resources.displayMetrics.density.times(indicatorHeightDp).roundToInt()
         val screenHeight = resources.displayMetrics.heightPixels
-        restoreIndicatorView = PetRestoreIndicatorView(this, side, ::restorePet).also { view ->
+        PetRestoreIndicatorView(this, side) { restorePet(petFiles.pet.id) }.also { view ->
+            restoreIndicatorViews[petFiles.pet.id] = view
             windowManager.addView(
                 view,
                 WindowManager.LayoutParams(
@@ -320,9 +325,9 @@ class PetOverlayService : Service() {
         }
     }
 
-    private fun restorePet() {
-        val petFiles = hiddenPetFiles ?: return
-        val indicator = restoreIndicatorView ?: return
+    private fun restorePet(petId: String) {
+        val petFiles = hiddenPetFiles[petId] ?: return
+        val indicator = restoreIndicatorViews[petId] ?: return
         val side = indicator.side
         val indicatorParams = indicator.layoutParams as WindowManager.LayoutParams
         showPet(
@@ -343,16 +348,31 @@ class PetOverlayService : Service() {
             .alpha(0f)
             .setDuration(indicatorTransitionDurationMillis)
             .withEndAction {
-                if (restoreIndicatorView === indicator) restoreIndicatorView = null
-                windowManager.removeView(indicator)
+                if (restoreIndicatorViews[petId] === indicator) {
+                    restoreIndicatorViews.remove(petId)
+                    hiddenPetFiles.remove(petId)
+                    windowManager.removeView(indicator)
+                }
             }
             .start()
         updateActivePets()
     }
 
-    private fun removePet(petId: String, updateState: Boolean = true) {
+    private fun removePet(
+        petId: String,
+        updateState: Boolean = true,
+        removeIndicator: Boolean = true,
+    ) {
         overlayViews.remove(petId)?.let { windowManager.removeView(it) }
+        if (removeIndicator) {
+            removeRestoreIndicator(petId)
+            hiddenPetFiles.remove(petId)
+        }
         if (updateState) updateActivePets()
+    }
+
+    private fun removeRestoreIndicator(petId: String) {
+        restoreIndicatorViews.remove(petId)?.let { windowManager.removeView(it) }
     }
 
     private fun updateActivePets() {
