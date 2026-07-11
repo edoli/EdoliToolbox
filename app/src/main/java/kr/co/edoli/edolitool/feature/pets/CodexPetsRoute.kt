@@ -2,6 +2,7 @@ package kr.co.edoli.edolitool.feature.pets
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -16,6 +18,10 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.UploadFile
@@ -32,6 +38,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -66,6 +73,8 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
     val snackbarHostState = remember { SnackbarHostState() }
     var pets by remember { mutableStateOf(CodexPetRepository.installedPets(context)) }
     var isImporting by remember { mutableStateOf(false) }
+    var animationPreviewPet by remember { mutableStateOf<CodexPet?>(null) }
+    val listState = rememberLazyListState()
     var activePetIds by remember { mutableStateOf(PetOverlayController.activePetIds(context)) }
     var petSizeDp by remember { mutableStateOf(PetOverlayController.petSizeDp(context).toFloat()) }
     var isSmoothDragEnabled by remember { mutableStateOf(PetOverlayController.isSmoothDragEnabled(context)) }
@@ -89,6 +98,11 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
         }
     }
 
+    animationPreviewPet?.let { pet ->
+        PetAnimationPreviewRoute(pet = pet, onBackClick = { animationPreviewPet = null })
+        return
+    }
+
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
@@ -109,6 +123,7 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(16.dp),
+            state = listState,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
@@ -176,6 +191,7 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                             PetOverlayController.hide(context, pet.id)
                             activePetIds = activePetIds - pet.id
                         },
+                        onViewAnimations = { animationPreviewPet = pet },
                     )
                 }
             }
@@ -286,6 +302,7 @@ private fun PetCard(
     isActive: Boolean,
     onShow: () -> Unit,
     onHide: () -> Unit,
+    onViewAnimations: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -296,7 +313,12 @@ private fun PetCard(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PetIdlePreview(pet)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                PetIdlePreview(pet)
+                TextButton(onClick = onViewAnimations) {
+                    Text("애니메이션 보기", style = MaterialTheme.typography.labelMedium)
+                }
+            }
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -311,6 +333,101 @@ private fun PetCard(
         }
     }
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PetAnimationPreviewRoute(pet: CodexPet, onBackClick: () -> Unit) {
+    val context = LocalContext.current
+    BackHandler(onBack = onBackClick)
+    val bitmap by produceState<Bitmap?>(initialValue = null, pet.id) {
+        value = withContext(Dispatchers.IO) {
+            CodexPetRepository.findPetFiles(context, pet.id)
+                ?.spritesheet
+                ?.let { BitmapFactory.decodeFile(it.path) }
+        }
+    }
+
+    Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing,
+        topBar = {
+            TopAppBar(
+                title = { Text("${pet.displayName} 애니메이션", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onBackClick) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "뒤로")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+            )
+        },
+    ) { innerPadding ->
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 96.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            gridItems(PetAnimation.entries, key = { it.name }) { animation ->
+                PetAnimationPreviewCard(bitmap = bitmap, animation = animation)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PetAnimationPreviewCard(bitmap: Bitmap?, animation: PetAnimation) {
+    var frameIndex by remember(animation) { mutableStateOf(0) }
+    LaunchedEffect(animation) {
+        while (true) {
+            delay(animation.frameDurations[frameIndex].toLong())
+            frameIndex = (frameIndex + 1) % animation.frameDurations.size
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+            ) {
+                bitmap?.asImageBitmap()?.let { image ->
+                    drawImage(
+                        image = image,
+                        srcOffset = IntOffset(frameIndex * spriteCellWidth, animation.row * spriteCellHeight),
+                        srcSize = IntSize(spriteCellWidth, spriteCellHeight),
+                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                        filterQuality = FilterQuality.Medium,
+                    )
+                }
+            }
+            Text(animation.displayName, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+private val PetAnimation.displayName: String
+    get() = when (this) {
+        PetAnimation.Idle -> "기본"
+        PetAnimation.RunningRight -> "오른쪽 달리기"
+        PetAnimation.RunningLeft -> "왼쪽 달리기"
+        PetAnimation.Waving -> "인사"
+        PetAnimation.Jumping -> "점프"
+        PetAnimation.Failed -> "실패"
+        PetAnimation.Waiting -> "대기"
+        PetAnimation.Running -> "작업 중"
+        PetAnimation.Review -> "검토"
+    }
 
 @Composable
 private fun PetIdlePreview(pet: CodexPet) {

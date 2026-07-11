@@ -787,7 +787,7 @@ private class PetRestoreIndicatorView(
     }
 }
 
-private enum class PetAnimation(
+internal enum class PetAnimation(
     val row: Int,
     val frameDurations: IntArray,
     val loops: Boolean,
