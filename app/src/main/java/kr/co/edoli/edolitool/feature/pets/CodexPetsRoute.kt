@@ -24,7 +24,9 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -74,6 +76,7 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
     var pets by remember { mutableStateOf(CodexPetRepository.installedPets(context)) }
     var isImporting by remember { mutableStateOf(false) }
     var animationPreviewPet by remember { mutableStateOf<CodexPet?>(null) }
+    var petToRemove by remember { mutableStateOf<CodexPet?>(null) }
     val listState = rememberLazyListState()
     var activePetIds by remember { mutableStateOf(PetOverlayController.activePetIds(context)) }
     var petSizeDp by remember { mutableStateOf(PetOverlayController.petSizeDp(context).toFloat()) }
@@ -101,6 +104,41 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
     animationPreviewPet?.let { pet ->
         PetAnimationPreviewRoute(pet = pet, onBackClick = { animationPreviewPet = null })
         return
+    }
+
+    petToRemove?.let { pet ->
+        AlertDialog(
+            onDismissRequest = { petToRemove = null },
+            title = { Text("펫 제거") },
+            text = { Text("${pet.displayName} 펫을 제거할까요?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        petToRemove = null
+                        scope.launch {
+                            PetOverlayController.hide(context, pet.id)
+                            val removed = withContext(Dispatchers.IO) {
+                                CodexPetRepository.remove(context, pet.id)
+                            }
+                            if (removed) {
+                                pets = CodexPetRepository.installedPets(context)
+                                activePetIds = activePetIds - pet.id
+                                snackbarHostState.showSnackbar("${pet.displayName} 펫을 제거했습니다.")
+                            } else {
+                                snackbarHostState.showSnackbar("펫을 제거할 수 없습니다.")
+                            }
+                        }
+                    },
+                ) {
+                    Text("제거", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { petToRemove = null }) {
+                    Text("취소")
+                }
+            },
+        )
     }
 
     Scaffold(
@@ -191,6 +229,7 @@ fun CodexPetsRoute(onBackClick: () -> Unit) {
                             PetOverlayController.hide(context, pet.id)
                             activePetIds = activePetIds - pet.id
                         },
+                        onRemove = { petToRemove = pet },
                         onViewAnimations = { animationPreviewPet = pet },
                     )
                 }
@@ -302,6 +341,7 @@ private fun PetCard(
     isActive: Boolean,
     onShow: () -> Unit,
     onHide: () -> Unit,
+    onRemove: () -> Unit,
     onViewAnimations: () -> Unit,
 ) {
     Card(
@@ -330,8 +370,20 @@ private fun PetCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Button(onClick = if (isActive) onHide else onShow) {
-                    Text(if (isActive) "화면에서 숨기기" else "화면에 띄우기")
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Button(onClick = if (isActive) onHide else onShow) {
+                        Text(if (isActive) "화면에서 숨기기" else "화면에 띄우기")
+                    }
+                    IconButton(onClick = onRemove) {
+                        Icon(
+                            Icons.Rounded.Delete,
+                            contentDescription = "${pet.displayName} 펫 제거",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
                 }
             }
         }
@@ -377,6 +429,9 @@ private fun PetAnimationPreviewRoute(pet: CodexPet, onBackClick: () -> Unit) {
             gridItems(PetAnimation.entries, key = { it.name }) { animation ->
                 PetAnimationPreviewCard(bitmap = bitmap, animation = animation)
             }
+            if (pet.spriteVersionNumber == 2) {
+                item(key = "look-directions") { PetLookDirectionPreviewCard(bitmap = bitmap) }
+            }
         }
     }
 }
@@ -416,6 +471,48 @@ private fun PetAnimationPreviewCard(bitmap: Bitmap?, animation: PetAnimation) {
                 }
             }
             Text(animation.displayName, style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@Composable
+private fun PetLookDirectionPreviewCard(bitmap: Bitmap?) {
+    var direction by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(lookDirectionFrameDurationMillis)
+            direction = (direction + 1) % 16
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+            ) {
+                bitmap?.asImageBitmap()?.let { image ->
+                    drawImage(
+                        image = image,
+                        srcOffset = IntOffset(
+                            (direction % 8) * spriteCellWidth,
+                            (direction / 8 + lookDirectionStartRow) * spriteCellHeight,
+                        ),
+                        srcSize = IntSize(spriteCellWidth, spriteCellHeight),
+                        dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+                        filterQuality = FilterQuality.Medium,
+                    )
+                }
+            }
+            Text("16방향 돌아보기", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -467,3 +564,5 @@ private fun PetIdlePreview(pet: CodexPet) {
 private val idleFrameDurations = intArrayOf(280, 110, 110, 140, 140, 320)
 private const val spriteCellWidth = 192
 private const val spriteCellHeight = 208
+private const val lookDirectionStartRow = 9
+private const val lookDirectionFrameDurationMillis = 120L

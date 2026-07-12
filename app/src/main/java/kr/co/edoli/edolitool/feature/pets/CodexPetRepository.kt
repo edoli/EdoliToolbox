@@ -98,6 +98,12 @@ object CodexPetRepository {
         }.sortedBy { it.displayName.lowercase() }
     }
 
+    fun remove(context: Context, id: String): Boolean {
+        if (!validId.matches(id)) return false
+        val directory = File(context.filesDir, "codex-pets/$id")
+        return !directory.exists() || directory.deleteRecursively()
+    }
+
     fun findPetFiles(context: Context, id: String): CodexPetFiles? {
         val pet = installedPets(context).firstOrNull { it.id == id } ?: return null
         val manifestFile = pet.directory.walkTopDown().firstOrNull { it.name == "pet.json" } ?: return null
