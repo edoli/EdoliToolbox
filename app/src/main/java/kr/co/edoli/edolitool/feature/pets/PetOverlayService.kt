@@ -34,6 +34,7 @@ import kr.co.edoli.edolitool.MainActivity
 import kr.co.edoli.edolitool.R
 import java.util.ArrayDeque
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.roundToInt
 import kotlin.random.Random
 
@@ -237,6 +238,7 @@ class PetOverlayService : Service() {
         val view = PetSpriteView(
             context = this,
             spritesheet = BitmapFactory.decodeFile(petFiles.spritesheet.path),
+            spriteVersionNumber = petFiles.pet.spriteVersionNumber,
             isSmoothDragEnabled = { PetOverlayController.isSmoothDragEnabled(this) },
             smoothDragFollowFraction = { PetOverlayController.smoothDragFollowFraction(this) },
             onDragFinished = { params -> hidePetIfDraggedOffscreen(petFiles, params) },
@@ -421,6 +423,7 @@ private enum class HiddenSide {
 private class PetSpriteView(
     context: Context,
     private val spritesheet: Bitmap,
+    private val spriteVersionNumber: Int,
     private val isSmoothDragEnabled: () -> Boolean,
     private val smoothDragFollowFraction: () -> Float,
     private val onDragFinished: (WindowManager.LayoutParams) -> Unit,
@@ -440,6 +443,9 @@ private class PetSpriteView(
     private var targetWindowX = 0
     private var targetWindowY = 0
     private var isSmoothFollowerRunning = false
+    private var isSlidingLook = false
+    private var slidingLookFrames = intArrayOf(4, 5, 4, 3)
+    private var slidingLookIndex = 0
     private var isDragging = false
     private var longPressTriggered = false
     private var suppressTapReaction = false
@@ -486,10 +492,17 @@ private class PetSpriteView(
             windowManager.updateViewLayout(this@PetSpriteView, params)
             if (params.x == targetWindowX && params.y == targetWindowY) {
                 isSmoothFollowerRunning = false
-                play(PetAnimation.Idle)
+                if (spriteVersionNumber == 2) stopSlidingLook() else play(PetAnimation.Idle)
             } else {
                 handler.postDelayed(this, smoothDragFrameDurationMillis)
             }
+        }
+    }
+    private val slidingLook = object : Runnable {
+        override fun run() {
+            slidingLookIndex = (slidingLookIndex + 1) % slidingLookFrames.size
+            invalidate()
+            handler.postDelayed(this, 120L)
         }
     }
 
@@ -504,12 +517,13 @@ private class PetSpriteView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        val spriteColumn = frameIndex
+        val lookFrame = if (spriteVersionNumber == 2 && isSlidingLook) slidingLookFrames[slidingLookIndex] else null
+        val spriteColumn = lookFrame?.rem(8) ?: frameIndex
         val source = Rect(
             spriteColumn * cellWidth,
-            animation.row * cellHeight,
+            (if (lookFrame == null) animation.row else if (lookFrame < 8) 9 else 10) * cellHeight,
             (spriteColumn + 1) * cellWidth,
-            (animation.row + 1) * cellHeight,
+            (if (lookFrame == null) animation.row + 1 else if (lookFrame < 8) 10 else 11) * cellHeight,
         )
         canvas.drawBitmap(spritesheet, source, Rect(0, 0, width, height), null)
     }
@@ -579,7 +593,11 @@ private class PetSpriteView(
                         }
                         onDragFinished(endParams)
                         if (isSmoothDragEnabled() && isSmoothFollowerRunning) {
-                            continueRunningAnimation()
+                            if (spriteVersionNumber == 2) {
+                                startSlidingLook(targetWindowX - params.x, targetWindowY - params.y)
+                            } else {
+                                continueRunningAnimation()
+                            }
                         } else {
                             play(PetAnimation.Idle)
                         }
@@ -653,6 +671,30 @@ private class PetSpriteView(
     private fun continueRunningAnimation() {
         if (runningDirection == 0) runningDirection = 1
         playRunningDirection()
+    }
+
+    private fun startSlidingLook(horizontalDistance: Int, verticalDistance: Int) {
+        isSlidingLook = true
+        val degrees = Math.toDegrees(atan2(horizontalDistance.toDouble(), -verticalDistance.toDouble()))
+        val baseDirection = ((degrees / 22.5).roundToInt() + 16) % 16
+        slidingLookFrames = intArrayOf(
+            baseDirection,
+            (baseDirection + 1) % 16,
+            baseDirection,
+            (baseDirection + 15) % 16,
+        )
+        slidingLookIndex = 0
+        handler.removeCallbacks(advanceAnimation)
+        handler.removeCallbacks(slidingLook)
+        handler.post(slidingLook)
+        invalidate()
+    }
+
+    private fun stopSlidingLook() {
+        if (!isSlidingLook) return
+        isSlidingLook = false
+        handler.removeCallbacks(slidingLook)
+        play(PetAnimation.Idle)
     }
 
     private fun playRunningDirection() {

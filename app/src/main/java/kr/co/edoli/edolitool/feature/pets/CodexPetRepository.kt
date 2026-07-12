@@ -14,6 +14,7 @@ data class CodexPet(
     val id: String,
     val displayName: String,
     val description: String,
+    val spriteVersionNumber: Int,
     val directory: File,
 )
 
@@ -42,7 +43,11 @@ object CodexPetRepository {
         val id = manifest.optString("id")
         val displayName = manifest.optString("displayName")
         val description = manifest.optString("description")
-        val version = manifest.optInt("spriteVersionNumber", -1)
+        val version = if (manifest.has("spriteVersionNumber")) {
+            manifest.optInt("spriteVersionNumber", -1)
+        } else {
+            1
+        }
         val spritesheetPath = manifest.optString("spritesheetPath")
         if (!validId.matches(id)) throw PetImportException("펫 ID 형식이 올바르지 않습니다.")
         if (displayName.isBlank()) throw PetImportException("펫 표시 이름이 필요합니다.")
@@ -73,7 +78,7 @@ object CodexPetRepository {
         } finally {
             if (temporaryDirectory.exists()) temporaryDirectory.deleteRecursively()
         }
-        return CodexPet(id, displayName, description, targetDirectory)
+        return CodexPet(id, displayName, description, version, targetDirectory)
     }
 
     fun installedPets(context: Context): List<CodexPet> {
@@ -86,6 +91,7 @@ object CodexPetRepository {
                     id = manifest.getString("id"),
                     displayName = manifest.getString("displayName"),
                     description = manifest.optString("description"),
+                    spriteVersionNumber = manifest.optInt("spriteVersionNumber", 1),
                     directory = directory,
                 )
             }.getOrNull()
@@ -178,13 +184,11 @@ object CodexPetRepository {
 
     private data class SpritesheetSize(val width: Int, val height: Int)
 
-    private companion object {
-        val spritesheetSizes = mapOf(
-            1 to SpritesheetSize(width = 1536, height = 1872),
-            2 to SpritesheetSize(width = 1536, height = 2288),
-        )
-        val supportedSpriteVersions = spritesheetSizes.keys
-    }
+    private val spritesheetSizes = mapOf(
+        1 to SpritesheetSize(width = 1536, height = 1872),
+        2 to SpritesheetSize(width = 1536, height = 2288),
+    )
+    private val supportedSpriteVersions = spritesheetSizes.keys
 }
 
 class PetImportException(message: String) : IllegalArgumentException(message)

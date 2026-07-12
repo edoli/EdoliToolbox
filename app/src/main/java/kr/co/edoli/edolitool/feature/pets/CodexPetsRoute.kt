@@ -325,7 +325,11 @@ private fun PetCard(
             ) {
                 Text(pet.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 if (pet.description.isNotBlank()) Text(pet.description, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("ID: ${pet.id}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    "ID: ${pet.id} · v${pet.spriteVersionNumber}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 Button(onClick = if (isActive) onHide else onShow) {
                     Text(if (isActive) "화면에서 숨기기" else "화면에 띄우기")
                 }
