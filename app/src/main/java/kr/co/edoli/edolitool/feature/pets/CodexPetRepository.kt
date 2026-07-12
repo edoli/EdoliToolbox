@@ -46,7 +46,9 @@ object CodexPetRepository {
         val spritesheetPath = manifest.optString("spritesheetPath")
         if (!validId.matches(id)) throw PetImportException("펫 ID 형식이 올바르지 않습니다.")
         if (displayName.isBlank()) throw PetImportException("펫 표시 이름이 필요합니다.")
-        if (version != 2) throw PetImportException("Codex 펫 v2만 가져올 수 있습니다.")
+        if (version !in supportedSpriteVersions) {
+            throw PetImportException("지원하지 않는 Codex 펫 버전입니다. v1 또는 v2만 가져올 수 있습니다.")
+        }
         if (!spritesheetPath.endsWith(".webp", ignoreCase = true)) {
             throw PetImportException("spritesheetPath는 WebP 파일이어야 합니다.")
         }
@@ -54,7 +56,7 @@ object CodexPetRepository {
         val sheetPath = resolveRelativePath(manifestPath, spritesheetPath)
         val sheetBytes = files[sheetPath]
             ?: throw PetImportException("spritesheet.webp 파일을 찾을 수 없습니다.")
-        validateSpritesheet(sheetBytes)
+        validateSpritesheet(sheetBytes, version)
 
         val root = File(context.filesDir, "codex-pets").apply { mkdirs() }
         val temporaryDirectory = File(root, ".${id}-${UUID.randomUUID()}")
@@ -154,11 +156,14 @@ object CodexPetRepository {
         return normalizeZipPath(path)
     }
 
-    private fun validateSpritesheet(bytes: ByteArray) {
+    private fun validateSpritesheet(bytes: ByteArray, version: Int) {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-        if (options.outWidth != 1536 || options.outHeight != 2288) {
-            throw PetImportException("스프라이트시트는 1536 × 2288 픽셀이어야 합니다.")
+        val expectedSize = spritesheetSizes.getValue(version)
+        if (options.outWidth != expectedSize.width || options.outHeight != expectedSize.height) {
+            throw PetImportException(
+                "Codex 펫 v$version 스프라이트시트는 ${expectedSize.width} × ${expectedSize.height} 픽셀이어야 합니다.",
+            )
         }
     }
 
@@ -169,6 +174,16 @@ object CodexPetRepository {
         }
         file.parentFile?.mkdirs()
         FileOutputStream(file).use { it.write(bytes) }
+    }
+
+    private data class SpritesheetSize(val width: Int, val height: Int)
+
+    private companion object {
+        val spritesheetSizes = mapOf(
+            1 to SpritesheetSize(width = 1536, height = 1872),
+            2 to SpritesheetSize(width = 1536, height = 2288),
+        )
+        val supportedSpriteVersions = spritesheetSizes.keys
     }
 }
 
