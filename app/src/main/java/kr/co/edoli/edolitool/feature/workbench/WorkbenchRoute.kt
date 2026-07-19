@@ -3,8 +3,13 @@ package kr.co.edoli.edolitool.feature.workbench
 import android.app.Activity
 import android.content.Context
 import android.graphics.Color as AndroidColor
+import android.graphics.BitmapFactory
 import android.graphics.Paint
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +29,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -59,6 +65,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -78,6 +86,8 @@ import kr.co.edoli.edolitool.util.parseColorQuery
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import java.io.File
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
@@ -107,6 +117,7 @@ private enum class WorkbenchObjectType(val label: String, val isMeasurement: Boo
     Circle("원"),
     Line("선"),
     Text("텍스트"),
+    Photo("사진"),
     Ruler("자", true),
     Protractor("각도기", true),
     MeasureRectangle("사각 측정", true),
@@ -167,6 +178,8 @@ private data class WorkbenchObject(
     val lineStartY: Float? = null,
     val lineEndX: Float? = null,
     val lineEndY: Float? = null,
+    val imageUri: String? = null,
+    val imageAspectRatio: Float = 1f,
 )
 
 private data class SavedWorkbench(
@@ -202,7 +215,26 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
     var selectedObjectId by remember { mutableStateOf<Long?>(null) }
     var measurementTool by remember { mutableStateOf<MeasurementTool?>(null) }
     var measurementState by remember { mutableStateOf<MeasurementState?>(null) }
+    var photoSourceDialogVisible by remember { mutableStateOf(false) }
     val currentObjects by rememberUpdatedState(objects)
+    val addPhoto: (Uri) -> Unit = { sourceUri ->
+        val storedUri = copyPhotoToWorkbench(context, sourceUri) ?: sourceUri
+        val newObject = createPhotoWorkbenchObject(storedUri, imageAspectRatio(context, storedUri), objects, context)
+        objects = objects + newObject
+        selectedObjectId = newObject.id
+        measurementTool = null
+        measurementState = null
+        panel = WorkbenchPanel.None
+    }
+    val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let(addPhoto)
+    }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(addPhoto)
+    }
+    val contentPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let(addPhoto)
+    }
 
     BackHandler(onBack = onBackClick)
     WorkbenchSystemBars(activity)
@@ -224,15 +256,16 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
                 }
             },
             onSelectObject = { selectedObjectId = it },
-            onResizeObject = { id, handle, x, y ->
+            onResizeObject = { id, handle, x, y, canvasAspectRatio ->
                 objects = currentObjects.map { item ->
-                    if (item.id == id) item.resize(handle, x, y) else item
+                    if (item.id == id) item.resize(handle, x, y, canvasAspectRatio) else item
                 }
             },
             onMeasurementChange = { measurementState = it },
         )
 
         WorkbenchToolbar(
+            modifier = Modifier.align(Alignment.TopCenter),
             panel = panel,
             measurementActive = measurementTool != null,
             onBackClick = onBackClick,
@@ -264,9 +297,14 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
 
             WorkbenchPanel.Add -> ObjectPanel(
                 onAdd = { type ->
-                    objects = objects + createWorkbenchObject(type, objects)
+                    val newObject = createWorkbenchObject(type, objects)
+                    objects = objects + newObject
+                    selectedObjectId = newObject.id
+                    measurementTool = null
+                    measurementState = null
                     panel = WorkbenchPanel.None
                 },
+                onAddPhoto = { photoSourceDialogVisible = true },
             )
 
             WorkbenchPanel.Measure -> MeasurementPanel(
@@ -330,20 +368,30 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
             )
         }
 
-        objects.firstOrNull { it.id == selectedObjectId }?.let {
-            SelectedObjectEditor(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(12.dp),
-                objectType = it.type,
-                onDismiss = { selectedObjectId = null },
+        if (photoSourceDialogVisible) {
+            PhotoSourceDialog(
+                onDismiss = { photoSourceDialogVisible = false },
+                onGallery = {
+                    photoSourceDialogVisible = false
+                    galleryPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                onFile = {
+                    photoSourceDialogVisible = false
+                    filePicker.launch(arrayOf("image/*"))
+                },
+                onOtherApps = {
+                    photoSourceDialogVisible = false
+                    contentPicker.launch("image/*")
+                },
             )
         }
+
     }
 }
 
 @Composable
 private fun WorkbenchToolbar(
+    modifier: Modifier = Modifier,
     panel: WorkbenchPanel,
     measurementActive: Boolean,
     onBackClick: () -> Unit,
@@ -352,9 +400,9 @@ private fun WorkbenchToolbar(
     onLoadClick: () -> Unit,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
+        modifier = modifier
+            .padding(top = 8.dp)
+            .wrapContentWidth(),
         shape = RoundedCornerShape(16.dp),
         color = Color(0xFF1F2937),
         tonalElevation = 4.dp,
@@ -480,13 +528,22 @@ private fun BackgroundPanel(
 }
 
 @Composable
-private fun ObjectPanel(onAdd: (WorkbenchObjectType) -> Unit) {
+private fun ObjectPanel(
+    onAdd: (WorkbenchObjectType) -> Unit,
+    onAddPhoto: () -> Unit,
+) {
     WorkbenchPanelSurface {
         Text("도형 추가", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
             WorkbenchObjectType.entries.filterNot { it.isMeasurement }.forEach { type ->
-                Button(onClick = { onAdd(type) }) { Text(type.label) }
+                if (type != WorkbenchObjectType.Photo) {
+                    Button(onClick = { onAdd(type) }) { Text(type.label) }
+                }
             }
+            Button(onClick = onAddPhoto) { Text("사진") }
         }
         Text(
             "추가한 도형은 서로 다른 색으로 표시되며, 화면에서 드래그해 위치를 옮길 수 있습니다.",
@@ -586,6 +643,33 @@ private fun CompactColorField(
 }
 
 @Composable
+private fun PhotoSourceDialog(
+    onDismiss: () -> Unit,
+    onGallery: () -> Unit,
+    onFile: () -> Unit,
+    onOtherApps: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("사진 추가") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onGallery, modifier = Modifier.fillMaxWidth()) {
+                    Text("갤러리")
+                }
+                Button(onClick = onFile, modifier = Modifier.fillMaxWidth()) {
+                    Text("파일")
+                }
+                Button(onClick = onOtherApps, modifier = Modifier.fillMaxWidth()) {
+                    Text("기타 앱에서 가져오기")
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
+}
+
+@Composable
 private fun RgbColorPickerDialog(
     label: String,
     initialColor: Int,
@@ -680,38 +764,6 @@ private fun HsvChannelField(
 }
 
 @Composable
-private fun SelectedObjectEditor(
-    objectType: WorkbenchObjectType,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val instruction = when (objectType) {
-        WorkbenchObjectType.Rectangle -> "꼭지점과 변 핸들을 드래그해 크기 조절"
-        WorkbenchObjectType.Circle -> "오른쪽 반지름 핸들을 드래그해 크기 조절"
-        WorkbenchObjectType.Line -> "시작점과 끝점 핸들을 드래그해 선 편집"
-        WorkbenchObjectType.Text -> "오른쪽 아래 크기 핸들을 드래그해 글자 크기 조절"
-        else -> "꼭지점과 변 핸들을 드래그해 크기 조절"
-    }
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.96f),
-        tonalElevation = 4.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "${objectType.label} 편집 · $instruction",
-                style = MaterialTheme.typography.labelMedium,
-            )
-            TextButton(onClick = onDismiss) { Text("완료") }
-        }
-    }
-}
-
-@Composable
 private fun LoadWorkbenchDialog(
     workbenches: List<SavedWorkbench>,
     onDismiss: () -> Unit,
@@ -763,13 +815,17 @@ private fun WorkbenchCanvas(
     measurementState: MeasurementState?,
     onMoveObject: (Long, Float, Float) -> Unit,
     onSelectObject: (Long?) -> Unit,
-    onResizeObject: (Long, ResizeHandle, Float, Float) -> Unit,
+    onResizeObject: (Long, ResizeHandle, Float, Float, Float) -> Unit,
     onMeasurementChange: (MeasurementState?) -> Unit,
 ) {
     val context = LocalContext.current
     val metrics = context.resources.displayMetrics
     val currentObjects by rememberUpdatedState(objects)
     val currentSelectedObjectId by rememberUpdatedState(selectedObjectId)
+    val photoUris = objects.mapNotNull { it.imageUri }
+    val photoBitmaps = remember(photoUris) {
+        photoUris.associateWith { uri -> loadImageBitmap(context, Uri.parse(uri)) }
+    }
     Canvas(
         modifier = Modifier
             .fillMaxSize()
@@ -839,6 +895,7 @@ private fun WorkbenchCanvas(
                                     handle,
                                     (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f),
                                     (change.position.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f),
+                                    size.width.toFloat() / size.height.coerceAtLeast(1),
                                 )
                             } else {
                                 onMoveObject(
@@ -853,7 +910,14 @@ private fun WorkbenchCanvas(
             },
     ) {
         drawWorkbenchBackground(background, metrics.xdpi / 25.4f, metrics.ydpi / 25.4f)
-        objects.forEach { item -> drawWorkbenchObject(item, metrics.xdpi / 25.4f, metrics.ydpi / 25.4f) }
+        objects.forEach { item ->
+            drawWorkbenchObject(
+                item,
+                metrics.xdpi / 25.4f,
+                metrics.ydpi / 25.4f,
+                photoBitmaps[item.imageUri],
+            )
+        }
         objects.firstOrNull { it.id == selectedObjectId }?.let { drawResizeHandles(it) }
         if (measurementTool != null && measurementState != null) {
             drawInteractiveMeasurement(
@@ -884,6 +948,12 @@ private fun WorkbenchObject.handleAt(x: Float, y: Float): ResizeHandle? {
         )
 
         WorkbenchObjectType.Text -> listOf(ResizeHandle.TextSize to Offset(right, bottom))
+        WorkbenchObjectType.Photo -> listOf(
+            ResizeHandle.TopLeft to Offset(left, top),
+            ResizeHandle.TopRight to Offset(right, top),
+            ResizeHandle.BottomRight to Offset(right, bottom),
+            ResizeHandle.BottomLeft to Offset(left, bottom),
+        )
         else -> listOf(
             ResizeHandle.TopLeft to Offset(left, top),
             ResizeHandle.Top to Offset(centerX, top),
@@ -900,7 +970,12 @@ private fun WorkbenchObject.handleAt(x: Float, y: Float): ResizeHandle? {
         ?.first
 }
 
-private fun WorkbenchObject.resize(handle: ResizeHandle, targetX: Float, targetY: Float): WorkbenchObject {
+private fun WorkbenchObject.resize(
+    handle: ResizeHandle,
+    targetX: Float,
+    targetY: Float,
+    canvasAspectRatio: Float,
+): WorkbenchObject {
     if (type == WorkbenchObjectType.Circle && handle == ResizeHandle.CircleRadius) {
         val radius = maxOf(abs(targetX - centerX), abs(targetY - centerY)).coerceIn(0.025f, 0.45f)
         return copy(width = radius * 2f, height = radius * 2f)
@@ -916,6 +991,36 @@ private fun WorkbenchObject.resize(handle: ResizeHandle, targetX: Float, targetY
         val left = centerX - width / 2f
         val newWidth = abs(targetX - left).coerceIn(0.08f, 0.75f)
         return copy(width = newWidth, textSize = (newWidth * 120f).coerceIn(14f, 96f))
+    }
+    if (type == WorkbenchObjectType.Photo) {
+        val left = centerX - width / 2f
+        val top = centerY - height / 2f
+        val right = centerX + width / 2f
+        val bottom = centerY + height / 2f
+        val fixed = when (handle) {
+            ResizeHandle.TopLeft -> Offset(right, bottom)
+            ResizeHandle.TopRight -> Offset(left, bottom)
+            ResizeHandle.BottomRight -> Offset(left, top)
+            ResizeHandle.BottomLeft -> Offset(right, top)
+            else -> return this
+        }
+        val normalizedAspectRatio = imageAspectRatio / canvasAspectRatio
+        val widthFromPointer = abs(targetX - fixed.x)
+        val heightFromPointer = abs(targetY - fixed.y)
+        val newWidth = if (widthFromPointer / normalizedAspectRatio <= heightFromPointer) {
+            heightFromPointer * normalizedAspectRatio
+        } else {
+            widthFromPointer
+        }.coerceIn(0.08f, 0.9f)
+        val newHeight = (newWidth / normalizedAspectRatio).coerceIn(0.08f, 0.9f)
+        val newLeft = if (handle == ResizeHandle.TopLeft || handle == ResizeHandle.BottomLeft) fixed.x - newWidth else fixed.x
+        val newTop = if (handle == ResizeHandle.TopLeft || handle == ResizeHandle.TopRight) fixed.y - newHeight else fixed.y
+        return copy(
+            centerX = (newLeft + newWidth / 2f).coerceIn(0f, 1f),
+            centerY = (newTop + newHeight / 2f).coerceIn(0f, 1f),
+            width = newWidth,
+            height = newHeight,
+        )
     }
     var left = centerX - width / 2f
     var top = centerY - height / 2f
@@ -1035,6 +1140,55 @@ private fun createWorkbenchObject(type: WorkbenchObjectType, existingObjects: Li
     )
 }
 
+private fun createPhotoWorkbenchObject(
+    uri: Uri,
+    aspectRatio: Float,
+    existingObjects: List<WorkbenchObject>,
+    context: Context,
+): WorkbenchObject {
+    val offset = (existingObjects.size % 4) * 0.05f
+    val normalizedAspectRatio = aspectRatio * context.resources.displayMetrics.heightPixels /
+        context.resources.displayMetrics.widthPixels.coerceAtLeast(1)
+    val height = 0.28f
+    val width = (height * normalizedAspectRatio).coerceIn(0.16f, 0.72f)
+    return WorkbenchObject(
+        id = System.nanoTime(),
+        type = WorkbenchObjectType.Photo,
+        color = objectColors[Random.nextInt(objectColors.size)],
+        centerX = (0.5f + offset).coerceAtMost(0.82f),
+        centerY = (0.48f + offset).coerceAtMost(0.78f),
+        width = width,
+        height = height,
+        imageUri = uri.toString(),
+        imageAspectRatio = aspectRatio,
+    )
+}
+
+private fun imageAspectRatio(context: Context, uri: Uri): Float {
+    return runCatching {
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeStream(stream, null, options)
+            options.outWidth.toFloat() / options.outHeight.coerceAtLeast(1)
+        } ?: 1f
+    }.getOrDefault(1f)
+}
+
+private fun copyPhotoToWorkbench(context: Context, sourceUri: Uri): Uri? = runCatching {
+    val directory = File(context.filesDir, "workbench_images").apply { mkdirs() }
+    val destination = File(directory, "${UUID.randomUUID()}.image")
+    context.contentResolver.openInputStream(sourceUri)?.use { input ->
+        destination.outputStream().use { output -> input.copyTo(output) }
+    } ?: return@runCatching null
+    Uri.fromFile(destination)
+}.getOrNull()
+
+private fun loadImageBitmap(context: Context, uri: Uri): ImageBitmap? = runCatching {
+    context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream)?.asImageBitmap()
+    }
+}.getOrNull()
+
 private fun DrawScope.drawWorkbenchBackground(
     background: WorkbenchBackgroundState,
     pixelsPerMmX: Float,
@@ -1082,7 +1236,12 @@ private fun DrawScope.drawWorkbenchBackground(
     }
 }
 
-private fun DrawScope.drawWorkbenchObject(item: WorkbenchObject, pixelsPerMmX: Float, pixelsPerMmY: Float) {
+private fun DrawScope.drawWorkbenchObject(
+    item: WorkbenchObject,
+    pixelsPerMmX: Float,
+    pixelsPerMmY: Float,
+    photo: ImageBitmap?,
+) {
     val color = colorToCompose(item.color)
     val center = Offset(item.centerX * size.width, item.centerY * size.height)
     val objectWidth = item.width * size.width
@@ -1099,6 +1258,18 @@ private fun DrawScope.drawWorkbenchObject(item: WorkbenchObject, pixelsPerMmX: F
         )
 
         WorkbenchObjectType.Text -> drawCanvasText(item.text, topLeft.x, center.y, color, item.textSize)
+        WorkbenchObjectType.Photo -> {
+            if (photo != null) {
+                drawImage(
+                    image = photo,
+                    dstOffset = androidx.compose.ui.unit.IntOffset(topLeft.x.toInt(), topLeft.y.toInt()),
+                    dstSize = androidx.compose.ui.unit.IntSize(objectWidth.toInt(), objectHeight.toInt()),
+                )
+            } else {
+                drawRect(color, topLeft, Size(objectWidth, objectHeight), style = Stroke(4f))
+                drawCanvasText("사진", center.x, center.y, color, 16f, Paint.Align.CENTER)
+            }
+        }
         WorkbenchObjectType.Ruler -> drawRuler(center, objectWidth, color, pixelsPerMmX)
         WorkbenchObjectType.Protractor -> drawProtractor(center, min(objectWidth, objectHeight), color)
         WorkbenchObjectType.MeasureRectangle -> drawMeasurementRectangle(
@@ -1128,7 +1299,6 @@ private fun DrawScope.drawResizeHandles(item: WorkbenchObject) {
             drawCircle(shadow, radius + 4f, center, style = Stroke(2f))
             drawCircle(shadow, 12f, Offset(center.x + radius, center.y))
             drawCircle(accent, 8f, Offset(center.x + radius, center.y))
-            drawCanvasText("반지름", center.x + radius + 12f, center.y - 12f, accent, 12f)
         }
 
         WorkbenchObjectType.Line -> {
@@ -1138,15 +1308,25 @@ private fun DrawScope.drawResizeHandles(item: WorkbenchObject) {
             drawCircle(shadow, 13f, end)
             drawCircle(accent, 9f, start)
             drawCircle(accent, 9f, end)
-            drawCanvasText("시작", start.x + 10f, start.y - 10f, accent, 12f)
-            drawCanvasText("끝", end.x + 10f, end.y - 10f, accent, 12f)
         }
 
         WorkbenchObjectType.Text -> {
             drawRect(shadow, Offset(left - 3f, top - 3f), Size(width + 6f, height + 6f), style = Stroke(2f))
             drawCircle(shadow, 12f, Offset(right, bottom))
             drawCircle(accent, 8f, Offset(right, bottom))
-            drawCanvasText("크기", right + 10f, bottom + 14f, accent, 12f)
+        }
+
+        WorkbenchObjectType.Photo -> {
+            drawRect(shadow, Offset(left - 3f, top - 3f), Size(width + 6f, height + 6f), style = Stroke(2f))
+            listOf(
+                Offset(left, top),
+                Offset(right, top),
+                Offset(right, bottom),
+                Offset(left, bottom),
+            ).forEach { point ->
+                drawCircle(shadow, 12f, point)
+                drawCircle(accent, 8f, point)
+            }
         }
 
         else -> {
@@ -1414,6 +1594,8 @@ private fun WorkbenchObject.toJson(): JSONObject = JSONObject().apply {
     lineStartY?.let { put("lineStartY", it.toDouble()) }
     lineEndX?.let { put("lineEndX", it.toDouble()) }
     lineEndY?.let { put("lineEndY", it.toDouble()) }
+    imageUri?.let { put("imageUri", it) }
+    put("imageAspectRatio", imageAspectRatio.toDouble())
 }
 
 private fun JSONObject.toSavedWorkbench(): SavedWorkbench {
@@ -1448,6 +1630,8 @@ private fun JSONObject.toWorkbenchObject(): WorkbenchObject = WorkbenchObject(
     lineStartY = optDoubleOrNull("lineStartY"),
     lineEndX = optDoubleOrNull("lineEndX"),
     lineEndY = optDoubleOrNull("lineEndY"),
+    imageUri = optString("imageUri").takeIf { it.isNotBlank() },
+    imageAspectRatio = optDouble("imageAspectRatio", 1.0).toFloat(),
 )
 
 private fun JSONObject.optDoubleOrNull(name: String): Float? = if (has(name)) optDouble(name).toFloat() else null
