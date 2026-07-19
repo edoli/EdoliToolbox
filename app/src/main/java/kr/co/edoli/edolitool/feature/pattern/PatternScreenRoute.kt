@@ -6,17 +6,13 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,15 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Fullscreen
-import androidx.compose.material.icons.rounded.SwapHoriz
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -43,37 +34,27 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -82,6 +63,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import kr.co.edoli.edolitool.util.colorToCompose
 import kr.co.edoli.edolitool.util.findActivity
 import kr.co.edoli.edolitool.util.parseColorQuery
+import kr.co.edoli.edolitool.ui.component.ScrubbableValueField
 import java.util.Locale
 import kotlin.math.ceil
 
@@ -196,11 +178,6 @@ fun PatternScreenRoute(onBackClick: () -> Unit) {
                             onValueChange = { gridLineThickness = it },
                         )
                     }
-                    Text(
-                        text = "좌우로 밀어 조절 · 탭하여 직접 입력",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                     Button(onClick = { fullscreen = true }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Rounded.Fullscreen, contentDescription = null)
                         Text("전체화면 표시", modifier = Modifier.padding(start = 8.dp))
@@ -218,140 +195,16 @@ private fun MmValueSetting(
     valueRange: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit,
 ) {
-    BlenderValueField(
+    ScrubbableValueField(
         label = label,
         value = value,
         valueRange = valueRange,
+        unit = "mm",
         modifier = Modifier.fillMaxWidth(),
+        formatValue = ::formatMm,
+        parseValue = String::toMmOrNull,
         onValueChange = onValueChange,
     )
-}
-
-@Composable
-private fun BlenderValueField(
-    label: String,
-    value: Float,
-    valueRange: ClosedFloatingPointRange<Float>,
-    modifier: Modifier = Modifier,
-    onValueChange: (Float) -> Unit,
-) {
-    var showEditor by remember { mutableStateOf(false) }
-    var editQuery by remember { mutableStateOf("") }
-    var showError by remember { mutableStateOf(false) }
-    val focusRequester = remember { FocusRequester() }
-    val currentValue by rememberUpdatedState(value)
-    val progress = ((value - valueRange.start) / (valueRange.endInclusive - valueRange.start))
-        .coerceIn(0f, 1f)
-    val shape = RoundedCornerShape(12.dp)
-
-    val applyEditedValue = {
-        val editedValue = editQuery.toMmOrNull()
-        if (editedValue == null || editedValue !in valueRange) {
-            showError = true
-        } else {
-            onValueChange(editedValue)
-            showEditor = false
-        }
-    }
-
-    Surface(
-        modifier = modifier
-            .height(52.dp)
-            .clip(shape)
-            .clickable {
-                editQuery = formatMm(value)
-                showError = false
-                showEditor = true
-            }
-            .pointerInput(valueRange) {
-                var draggedValue = currentValue
-                val amountPerPixel = (valueRange.endInclusive - valueRange.start) / 280f
-                detectHorizontalDragGestures(
-                    onDragStart = { draggedValue = currentValue },
-                    onHorizontalDrag = { change, dragAmount ->
-                        change.consume()
-                        draggedValue = (draggedValue + dragAmount * amountPerPixel)
-                            .coerceIn(valueRange.start, valueRange.endInclusive)
-                        onValueChange(draggedValue)
-                    },
-                )
-            }
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape),
-        shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(progress.coerceAtLeast(0.001f))
-                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)),
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.SwapHoriz,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = label,
-                    modifier = Modifier.padding(start = 10.dp),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = "${formatMm(value)} mm",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-
-    if (showEditor) {
-        LaunchedEffect(Unit) { focusRequester.requestFocus() }
-        AlertDialog(
-            onDismissRequest = { showEditor = false },
-            title = { Text("$label 입력") },
-            text = {
-                OutlinedTextField(
-                    value = editQuery,
-                    onValueChange = {
-                        editQuery = it
-                        showError = false
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    suffix = { Text("mm") },
-                    isError = showError,
-                    supportingText = {
-                        val rangeText = "${formatMm(valueRange.start)}~${formatMm(valueRange.endInclusive)} mm"
-                        Text(if (showError) "범위 안의 숫자를 입력하세요. ($rangeText)" else "입력 범위: $rangeText")
-                    },
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Decimal,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { applyEditedValue() }),
-                    singleLine = true,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { applyEditedValue() }) { Text("적용") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEditor = false }) { Text("취소") }
-            },
-        )
-    }
 }
 
 private fun String.toMmOrNull(): Float? = trim().replace(',', '.').toFloatOrNull()
