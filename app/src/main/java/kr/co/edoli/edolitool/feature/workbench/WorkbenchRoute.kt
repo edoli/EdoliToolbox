@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -37,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Straighten
@@ -45,6 +47,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -69,6 +72,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -147,6 +151,7 @@ private enum class ResizeHandle {
     LineStart,
     LineEnd,
     TextSize,
+    Rotate,
 }
 
 private data class MeasurementState(
@@ -180,6 +185,7 @@ private data class WorkbenchObject(
     val lineEndY: Float? = null,
     val imageUri: String? = null,
     val imageAspectRatio: Float = 1f,
+    val rotationDegrees: Float = 0f,
 )
 
 private data class SavedWorkbench(
@@ -200,6 +206,9 @@ private val objectColors = listOf(
     AndroidColor.rgb(236, 72, 153),
 )
 
+private const val rotationHandleOffsetPx = 112f
+private const val editHandleTouchRadiusPx = 64f
+
 @Composable
 fun WorkbenchRoute(onBackClick: () -> Unit) {
     val context = LocalContext.current
@@ -216,6 +225,7 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
     var measurementTool by remember { mutableStateOf<MeasurementTool?>(null) }
     var measurementState by remember { mutableStateOf<MeasurementState?>(null) }
     var photoSourceDialogVisible by remember { mutableStateOf(false) }
+    var propertiesDialogObjectId by remember { mutableStateOf<Long?>(null) }
     val currentObjects by rememberUpdatedState(objects)
     val addPhoto: (Uri) -> Unit = { sourceUri ->
         val storedUri = copyPhotoToWorkbench(context, sourceUri) ?: sourceUri
@@ -382,6 +392,29 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
                 onOtherApps = {
                     photoSourceDialogVisible = false
                     contentPicker.launch("image/*")
+                },
+            )
+        }
+
+        objects.firstOrNull { it.id == selectedObjectId }?.let { selectedObject ->
+            FloatingActionButton(
+                onClick = { propertiesDialogObjectId = selectedObject.id },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp),
+            ) {
+                Icon(Icons.Rounded.Edit, contentDescription = "${selectedObject.type.label} 수치 편집")
+            }
+        }
+
+        objects.firstOrNull { it.id == propertiesDialogObjectId }?.let { selectedObject ->
+            ShapePropertiesDialog(
+                objectToEdit = selectedObject,
+                context = context,
+                onDismiss = { propertiesDialogObjectId = null },
+                onApply = { updatedObject ->
+                    objects = objects.map { if (it.id == updatedObject.id) updatedObject else it }
+                    propertiesDialogObjectId = null
                 },
             )
         }
@@ -670,6 +703,153 @@ private fun PhotoSourceDialog(
 }
 
 @Composable
+private fun ShapePropertiesDialog(
+    objectToEdit: WorkbenchObject,
+    context: Context,
+    onDismiss: () -> Unit,
+    onApply: (WorkbenchObject) -> Unit,
+) {
+    val metrics = context.resources.displayMetrics
+    val pixelsPerMmX = metrics.xdpi / 25.4f
+    val pixelsPerMmY = metrics.ydpi / 25.4f
+    val canvasWidth = metrics.widthPixels.toFloat()
+    val canvasHeight = metrics.heightPixels.toFloat()
+    var firstValue by remember(objectToEdit.id) { mutableStateOf("") }
+    var secondValue by remember(objectToEdit.id) { mutableStateOf("") }
+    var thirdValue by remember(objectToEdit.id) { mutableStateOf("") }
+
+    androidx.compose.runtime.LaunchedEffect(objectToEdit.id) {
+        when (objectToEdit.type) {
+            WorkbenchObjectType.Rectangle -> {
+                firstValue = formatMm(objectToEdit.width * canvasWidth / pixelsPerMmX)
+                secondValue = formatMm(objectToEdit.height * canvasHeight / pixelsPerMmY)
+                thirdValue = formatMm(objectToEdit.rotationDegrees)
+            }
+
+            WorkbenchObjectType.Circle -> {
+                firstValue = formatMm(objectToEdit.width * canvasWidth / pixelsPerMmX / 2f)
+            }
+
+            WorkbenchObjectType.Line -> {
+                val start = objectToEdit.lineStart()
+                val end = objectToEdit.lineEnd()
+                val deltaXmm = (end.x - start.x) * canvasWidth / pixelsPerMmX
+                val deltaYmm = (end.y - start.y) * canvasHeight / pixelsPerMmY
+                firstValue = formatMm(sqrt(deltaXmm * deltaXmm + deltaYmm * deltaYmm))
+                secondValue = formatMm(Math.toDegrees(atan2((-deltaYmm).toDouble(), deltaXmm.toDouble())).toFloat())
+            }
+
+            WorkbenchObjectType.Text -> firstValue = formatMm(objectToEdit.textSize)
+            WorkbenchObjectType.Photo -> firstValue = formatMm(objectToEdit.width * canvasWidth / pixelsPerMmX)
+            else -> Unit
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("${objectToEdit.type.label} 수치 편집") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when (objectToEdit.type) {
+                    WorkbenchObjectType.Rectangle -> {
+                        NumericInput("가로 (mm)", firstValue) { firstValue = it }
+                        NumericInput("세로 (mm)", secondValue) { secondValue = it }
+                        NumericInput("회전 (°)", thirdValue) { thirdValue = it }
+                    }
+
+                    WorkbenchObjectType.Circle -> NumericInput("반지름 (mm)", firstValue) { firstValue = it }
+                    WorkbenchObjectType.Line -> {
+                        NumericInput("길이 (mm)", firstValue) { firstValue = it }
+                        NumericInput("각도 (°)", secondValue) { secondValue = it }
+                    }
+
+                    WorkbenchObjectType.Text -> NumericInput("글자 크기 (sp)", firstValue) { firstValue = it }
+                    WorkbenchObjectType.Photo -> NumericInput("가로 (mm)", firstValue) { firstValue = it }
+                    else -> Text("이 객체는 수치 편집을 지원하지 않습니다.")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    val updatedObject = objectToEdit.applyNumericProperties(
+                        firstValue = firstValue.toNumberOrNull(),
+                        secondValue = secondValue.toNumberOrNull(),
+                        thirdValue = thirdValue.toNumberOrNull(),
+                        pixelsPerMmX = pixelsPerMmX,
+                        pixelsPerMmY = pixelsPerMmY,
+                        canvasWidth = canvasWidth,
+                        canvasHeight = canvasHeight,
+                    )
+                    onApply(updatedObject)
+                },
+            ) { Text("적용") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+    )
+}
+
+@Composable
+private fun NumericInput(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text(label) },
+        singleLine = true,
+    )
+}
+
+private fun WorkbenchObject.applyNumericProperties(
+    firstValue: Float?,
+    secondValue: Float?,
+    thirdValue: Float?,
+    pixelsPerMmX: Float,
+    pixelsPerMmY: Float,
+    canvasWidth: Float,
+    canvasHeight: Float,
+): WorkbenchObject = when (type) {
+    WorkbenchObjectType.Rectangle -> copy(
+        width = firstValue?.let { (it * pixelsPerMmX / canvasWidth).coerceIn(0.05f, 1f) } ?: width,
+        height = secondValue?.let { (it * pixelsPerMmY / canvasHeight).coerceIn(0.05f, 1f) } ?: height,
+        rotationDegrees = thirdValue ?: rotationDegrees,
+    )
+
+    WorkbenchObjectType.Circle -> firstValue?.let { radiusMm ->
+        copy(
+            width = (radiusMm * 2f * pixelsPerMmX / canvasWidth).coerceIn(0.05f, 1f),
+            height = (radiusMm * 2f * pixelsPerMmY / canvasHeight).coerceIn(0.05f, 1f),
+        )
+    } ?: this
+
+    WorkbenchObjectType.Line -> {
+        if (firstValue == null || secondValue == null) this
+        else {
+            val radians = Math.toRadians(secondValue.toDouble())
+            val halfLength = firstValue / 2f
+            val deltaX = halfLength * cos(radians).toFloat() * pixelsPerMmX / canvasWidth
+            val deltaY = halfLength * sin(radians).toFloat() * pixelsPerMmY / canvasHeight
+            copy(
+                lineStartX = (centerX - deltaX).coerceIn(0f, 1f),
+                lineStartY = (centerY + deltaY).coerceIn(0f, 1f),
+                lineEndX = (centerX + deltaX).coerceIn(0f, 1f),
+                lineEndY = (centerY - deltaY).coerceIn(0f, 1f),
+            ).withLineBounds()
+        }
+    }
+
+    WorkbenchObjectType.Text -> firstValue?.let { copy(textSize = it.coerceIn(8f, 160f)) } ?: this
+    WorkbenchObjectType.Photo -> firstValue?.let { widthMm ->
+        copy(
+            width = (widthMm * pixelsPerMmX / canvasWidth).coerceIn(0.08f, 1f),
+            height = (widthMm / imageAspectRatio * pixelsPerMmY / canvasHeight).coerceIn(0.08f, 1f),
+        )
+    } ?: this
+
+    else -> this
+}
+
+@Composable
 private fun RgbColorPickerDialog(
     label: String,
     initialColor: Int,
@@ -870,7 +1050,13 @@ private fun WorkbenchCanvas(
                             val x = touchOffset.x / size.width.coerceAtLeast(1)
                             val y = touchOffset.y / size.height.coerceAtLeast(1)
                             val selectedObject = currentObjects.firstOrNull { it.id == currentSelectedObjectId }
-                            resizeHandle = selectedObject?.handleAt(x, y)
+                            resizeHandle = selectedObject?.handleAt(
+                                x = x,
+                                y = y,
+                                canvasAspectRatio = size.width.toFloat() / size.height.coerceAtLeast(1),
+                                canvasWidth = size.width.toFloat(),
+                                canvasHeight = size.height.toFloat(),
+                            )
                             draggedObjectId = when {
                                 resizeHandle != null -> selectedObject?.id
                                 else -> currentObjects.asReversed().firstOrNull { item -> item.contains(x, y) }?.id
@@ -935,7 +1121,18 @@ private fun WorkbenchObject.contains(x: Float, y: Float): Boolean {
     return abs(x - centerX) <= width / 2f + horizontalPadding && abs(y - centerY) <= height / 2f + 0.04f
 }
 
-private fun WorkbenchObject.handleAt(x: Float, y: Float): ResizeHandle? {
+private fun WorkbenchObject.handleAt(
+    x: Float,
+    y: Float,
+    canvasAspectRatio: Float,
+    canvasWidth: Float,
+    canvasHeight: Float,
+): ResizeHandle? {
+    val unrotatedTarget = if (type == WorkbenchObjectType.Rectangle && rotationDegrees != 0f) {
+        rotateNormalizedPoint(Offset(x, y), Offset(centerX, centerY), -rotationDegrees, canvasAspectRatio)
+    } else {
+        Offset(x, y)
+    }
     val left = centerX - width / 2f
     val top = centerY - height / 2f
     val right = centerX + width / 2f
@@ -963,10 +1160,18 @@ private fun WorkbenchObject.handleAt(x: Float, y: Float): ResizeHandle? {
             ResizeHandle.Bottom to Offset(centerX, bottom),
             ResizeHandle.BottomLeft to Offset(left, bottom),
             ResizeHandle.Left to Offset(left, centerY),
-        )
+        ) + if (type == WorkbenchObjectType.Rectangle) {
+            listOf(ResizeHandle.Rotate to Offset(centerX, top - rotationHandleOffsetPx / canvasHeight))
+        } else {
+            emptyList()
+        }
     }
-    return handles.minByOrNull { (_, handle) -> abs(x - handle.x) + abs(y - handle.y) }
-        ?.takeIf { (_, handle) -> abs(x - handle.x) < 0.045f && abs(y - handle.y) < 0.045f }
+    val touchRadiusX = editHandleTouchRadiusPx / canvasWidth
+    val touchRadiusY = editHandleTouchRadiusPx / canvasHeight
+    return handles.minByOrNull { (_, handle) -> abs(unrotatedTarget.x - handle.x) + abs(unrotatedTarget.y - handle.y) }
+        ?.takeIf { (_, handle) ->
+            abs(unrotatedTarget.x - handle.x) < touchRadiusX && abs(unrotatedTarget.y - handle.y) < touchRadiusY
+        }
         ?.first
 }
 
@@ -976,20 +1181,33 @@ private fun WorkbenchObject.resize(
     targetY: Float,
     canvasAspectRatio: Float,
 ): WorkbenchObject {
+    if (type == WorkbenchObjectType.Rectangle && handle == ResizeHandle.Rotate) {
+        val deltaX = (targetX - centerX) * canvasAspectRatio
+        val deltaY = targetY - centerY
+        val rotation = Math.toDegrees(atan2(deltaY.toDouble(), deltaX.toDouble())).toFloat() + 90f
+        return copy(rotationDegrees = ((rotation % 360f) + 360f) % 360f)
+    }
+    val unrotatedTarget = if (type == WorkbenchObjectType.Rectangle && rotationDegrees != 0f) {
+        rotateNormalizedPoint(Offset(targetX, targetY), Offset(centerX, centerY), -rotationDegrees, canvasAspectRatio)
+    } else {
+        Offset(targetX, targetY)
+    }
+    val localTargetX = unrotatedTarget.x
+    val localTargetY = unrotatedTarget.y
     if (type == WorkbenchObjectType.Circle && handle == ResizeHandle.CircleRadius) {
-        val radius = maxOf(abs(targetX - centerX), abs(targetY - centerY)).coerceIn(0.025f, 0.45f)
+        val radius = maxOf(abs(localTargetX - centerX), abs(localTargetY - centerY)).coerceIn(0.025f, 0.45f)
         return copy(width = radius * 2f, height = radius * 2f)
     }
     if (type == WorkbenchObjectType.Line) {
         return when (handle) {
-            ResizeHandle.LineStart -> copy(lineStartX = targetX, lineStartY = targetY).withLineBounds()
-            ResizeHandle.LineEnd -> copy(lineEndX = targetX, lineEndY = targetY).withLineBounds()
+            ResizeHandle.LineStart -> copy(lineStartX = localTargetX, lineStartY = localTargetY).withLineBounds()
+            ResizeHandle.LineEnd -> copy(lineEndX = localTargetX, lineEndY = localTargetY).withLineBounds()
             else -> this
         }
     }
     if (type == WorkbenchObjectType.Text && handle == ResizeHandle.TextSize) {
         val left = centerX - width / 2f
-        val newWidth = abs(targetX - left).coerceIn(0.08f, 0.75f)
+        val newWidth = abs(localTargetX - left).coerceIn(0.08f, 0.75f)
         return copy(width = newWidth, textSize = (newWidth * 120f).coerceIn(14f, 96f))
     }
     if (type == WorkbenchObjectType.Photo) {
@@ -1005,8 +1223,8 @@ private fun WorkbenchObject.resize(
             else -> return this
         }
         val normalizedAspectRatio = imageAspectRatio / canvasAspectRatio
-        val widthFromPointer = abs(targetX - fixed.x)
-        val heightFromPointer = abs(targetY - fixed.y)
+        val widthFromPointer = abs(localTargetX - fixed.x)
+        val heightFromPointer = abs(localTargetY - fixed.y)
         val newWidth = if (widthFromPointer / normalizedAspectRatio <= heightFromPointer) {
             heightFromPointer * normalizedAspectRatio
         } else {
@@ -1028,29 +1246,30 @@ private fun WorkbenchObject.resize(
     var bottom = centerY + height / 2f
     when (handle) {
         ResizeHandle.TopLeft -> {
-            left = targetX
-            top = targetY
+            left = localTargetX
+            top = localTargetY
         }
 
-        ResizeHandle.Top -> top = targetY
+        ResizeHandle.Top -> top = localTargetY
         ResizeHandle.TopRight -> {
-            right = targetX
-            top = targetY
+            right = localTargetX
+            top = localTargetY
         }
 
-        ResizeHandle.Right -> right = targetX
+        ResizeHandle.Right -> right = localTargetX
         ResizeHandle.BottomRight -> {
-            right = targetX
-            bottom = targetY
+            right = localTargetX
+            bottom = localTargetY
         }
 
-        ResizeHandle.Bottom -> bottom = targetY
+        ResizeHandle.Bottom -> bottom = localTargetY
         ResizeHandle.BottomLeft -> {
-            left = targetX
-            bottom = targetY
+            left = localTargetX
+            bottom = localTargetY
         }
 
-        ResizeHandle.Left -> left = targetX
+        ResizeHandle.Left -> left = localTargetX
+        ResizeHandle.Rotate -> Unit
         else -> Unit
     }
     val minimumSize = 0.05f
@@ -1104,6 +1323,20 @@ private fun WorkbenchObject.withLineBounds(): WorkbenchObject {
         width = abs(end.x - start.x).coerceAtLeast(0.05f),
         height = abs(end.y - start.y).coerceAtLeast(0.05f),
     )
+}
+
+private fun rotateNormalizedPoint(
+    point: Offset,
+    center: Offset,
+    angleDegrees: Float,
+    canvasAspectRatio: Float,
+): Offset {
+    val radians = Math.toRadians(angleDegrees.toDouble())
+    val deltaX = (point.x - center.x) * canvasAspectRatio
+    val deltaY = point.y - center.y
+    val rotatedX = deltaX * cos(radians).toFloat() - deltaY * sin(radians).toFloat()
+    val rotatedY = deltaX * sin(radians).toFloat() + deltaY * cos(radians).toFloat()
+    return Offset(center.x + rotatedX / canvasAspectRatio, center.y + rotatedY)
 }
 
 private fun createWorkbenchObject(type: WorkbenchObjectType, existingObjects: List<WorkbenchObject>): WorkbenchObject {
@@ -1248,7 +1481,9 @@ private fun DrawScope.drawWorkbenchObject(
     val objectHeight = item.height * size.height
     val topLeft = Offset(center.x - objectWidth / 2f, center.y - objectHeight / 2f)
     when (item.type) {
-        WorkbenchObjectType.Rectangle -> drawRect(color, topLeft, Size(objectWidth, objectHeight), style = Stroke(4f))
+        WorkbenchObjectType.Rectangle -> rotate(item.rotationDegrees, center) {
+            drawRect(color, topLeft, Size(objectWidth, objectHeight), style = Stroke(4f))
+        }
         WorkbenchObjectType.Circle -> drawCircle(color, min(objectWidth, objectHeight) / 2f, center, style = Stroke(4f))
         WorkbenchObjectType.Line -> drawLine(
             color,
@@ -1292,8 +1527,37 @@ private fun DrawScope.drawResizeHandles(item: WorkbenchObject) {
     val right = center.x + width / 2f
     val bottom = center.y + height / 2f
     val accent = Color.White
-    val shadow = Color.Black.copy(alpha = 0.72f)
+    val shadow = Color.Gray.copy(alpha = 0.72f)
     when (item.type) {
+        WorkbenchObjectType.Rectangle -> rotate(item.rotationDegrees, center) {
+            drawRectangleResizeHandles(left, top, right, bottom, center, accent, shadow)
+            val rotationCenter = Offset(center.x, top - rotationHandleOffsetPx)
+            drawLine(shadow, Offset(center.x, top), Offset(center.x, rotationCenter.y + 18f), 2f)
+            drawCircle(shadow, 20f, rotationCenter)
+            drawCircle(accent, 16f, rotationCenter)
+            drawArc(
+                shadow,
+                0f,
+                270f,
+                false,
+                Offset(rotationCenter.x - 9f, rotationCenter.y - 9f),
+                Size(18f, 18f),
+                style = Stroke(2.5f),
+            )
+            drawLine(
+                shadow,
+                Offset(rotationCenter.x + 9f, rotationCenter.y),
+                Offset(rotationCenter.x + 11f, rotationCenter.y + 6f),
+                2.5f,
+            )
+            drawLine(
+                shadow,
+                Offset(rotationCenter.x + 9f, rotationCenter.y),
+                Offset(rotationCenter.x + 3f, rotationCenter.y + 2f),
+                2.5f,
+            )
+        }
+
         WorkbenchObjectType.Circle -> {
             val radius = min(width, height) / 2f
             drawCircle(shadow, radius + 4f, center, style = Stroke(2f))
@@ -1330,23 +1594,34 @@ private fun DrawScope.drawResizeHandles(item: WorkbenchObject) {
         }
 
         else -> {
-            drawRect(shadow, Offset(left - 3f, top - 3f), Size(width + 6f, height + 6f), style = Stroke(2f))
-            val corners = listOf(
-                Offset(left, top),
-                Offset(right, top),
-                Offset(right, bottom),
-                Offset(left, bottom),
-            )
-            corners.forEach { point ->
-                drawCircle(shadow, 12f, point)
-                drawCircle(accent, 8f, point)
-            }
-            drawHorizontalResizeHandle(Offset(left, center.y), accent, shadow)
-            drawHorizontalResizeHandle(Offset(right, center.y), accent, shadow)
-            drawVerticalResizeHandle(Offset(center.x, top), accent, shadow)
-            drawVerticalResizeHandle(Offset(center.x, bottom), accent, shadow)
+            drawRectangleResizeHandles(left, top, right, bottom, center, accent, shadow)
         }
     }
+}
+
+private fun DrawScope.drawRectangleResizeHandles(
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+    center: Offset,
+    accent: Color,
+    shadow: Color,
+) {
+    drawRect(shadow, Offset(left - 3f, top - 3f), Size(right - left + 6f, bottom - top + 6f), style = Stroke(2f))
+    listOf(
+        Offset(left, top),
+        Offset(right, top),
+        Offset(right, bottom),
+        Offset(left, bottom),
+    ).forEach { point ->
+        drawCircle(shadow, 12f, point)
+        drawCircle(accent, 8f, point)
+    }
+    drawHorizontalResizeHandle(Offset(left, center.y), accent, shadow)
+    drawHorizontalResizeHandle(Offset(right, center.y), accent, shadow)
+    drawVerticalResizeHandle(Offset(center.x, top), accent, shadow)
+    drawVerticalResizeHandle(Offset(center.x, bottom), accent, shadow)
 }
 
 private fun DrawScope.drawHorizontalResizeHandle(center: Offset, color: Color, shadow: Color) {
@@ -1596,6 +1871,7 @@ private fun WorkbenchObject.toJson(): JSONObject = JSONObject().apply {
     lineEndY?.let { put("lineEndY", it.toDouble()) }
     imageUri?.let { put("imageUri", it) }
     put("imageAspectRatio", imageAspectRatio.toDouble())
+    put("rotationDegrees", rotationDegrees.toDouble())
 }
 
 private fun JSONObject.toSavedWorkbench(): SavedWorkbench {
@@ -1632,11 +1908,14 @@ private fun JSONObject.toWorkbenchObject(): WorkbenchObject = WorkbenchObject(
     lineEndY = optDoubleOrNull("lineEndY"),
     imageUri = optString("imageUri").takeIf { it.isNotBlank() },
     imageAspectRatio = optDouble("imageAspectRatio", 1.0).toFloat(),
+    rotationDegrees = optDouble("rotationDegrees", 0.0).toFloat(),
 )
 
 private fun JSONObject.optDoubleOrNull(name: String): Float? = if (has(name)) optDouble(name).toFloat() else null
 
 private fun String.toMmOrNull(): Float? = trim().replace(',', '.').toFloatOrNull()
+
+private fun String.toNumberOrNull(): Float? = trim().replace(',', '.').toFloatOrNull()
 
 private fun formatMm(value: Float): String = "%.2f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 
