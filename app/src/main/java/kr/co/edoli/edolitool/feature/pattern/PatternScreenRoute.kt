@@ -19,7 +19,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -58,6 +60,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -65,7 +68,13 @@ import androidx.core.view.WindowInsetsControllerCompat
 import kr.co.edoli.edolitool.util.colorToCompose
 import kr.co.edoli.edolitool.util.findActivity
 import kr.co.edoli.edolitool.util.parseColorQuery
+import java.util.Locale
 import kotlin.math.ceil
+
+private const val minPatternSizeMm = 1f
+private const val maxPatternSizeMm = 50f
+private const val minGridLineThicknessMm = 0.01f
+private const val maxGridLineThicknessMm = 5f
 
 private enum class ScreenPattern(val label: String) {
     Checkerboard("체커보드"),
@@ -83,7 +92,9 @@ fun PatternScreenRoute(onBackClick: () -> Unit) {
     var foregroundQuery by remember { mutableStateOf("#FFFFFF") }
     var backgroundQuery by remember { mutableStateOf("#000000") }
     var cellSize by remember { mutableFloatStateOf(10f) }
+    var cellSizeQuery by remember { mutableStateOf(formatMm(cellSize)) }
     var gridLineThickness by remember { mutableFloatStateOf(0.5f) }
+    var gridLineThicknessQuery by remember { mutableStateOf(formatMm(gridLineThickness)) }
     var fullscreen by remember { mutableStateOf(false) }
 
     if (fullscreen) {
@@ -159,21 +170,38 @@ fun PatternScreenRoute(onBackClick: () -> Unit) {
                             parseColorQuery(value)?.let { backgroundColor = it }
                         },
                     )
-                    Text("크기: ${"%.1f".format(cellSize)} mm", style = MaterialTheme.typography.titleSmall)
-                    Slider(
+                    MmValueSetting(
+                        label = "크기",
                         value = cellSize,
-                        onValueChange = { cellSize = it },
-                        valueRange = 1f..50f,
+                        query = cellSizeQuery,
+                        valueRange = minPatternSizeMm..maxPatternSizeMm,
+                        onValueChange = { value ->
+                            cellSize = value
+                            cellSizeQuery = formatMm(value)
+                        },
+                        onQueryChange = { query ->
+                            cellSizeQuery = query
+                            query.toMmOrNull()?.takeIf { it in minPatternSizeMm..maxPatternSizeMm }?.let {
+                                cellSize = it
+                            }
+                        },
                     )
                     if (pattern == ScreenPattern.Grid) {
-                        Text(
-                            "선 두께: ${"%.1f".format(gridLineThickness)} mm",
-                            style = MaterialTheme.typography.titleSmall,
-                        )
-                        Slider(
+                        MmValueSetting(
+                            label = "선 두께",
                             value = gridLineThickness,
-                            onValueChange = { gridLineThickness = it },
-                            valueRange = 0.01f..5f,
+                            query = gridLineThicknessQuery,
+                            valueRange = minGridLineThicknessMm..maxGridLineThicknessMm,
+                            onValueChange = { value ->
+                                gridLineThickness = value
+                                gridLineThicknessQuery = formatMm(value)
+                            },
+                            onQueryChange = { query ->
+                                gridLineThicknessQuery = query
+                                query.toMmOrNull()?.takeIf {
+                                    it in minGridLineThicknessMm..maxGridLineThicknessMm
+                                }?.let { gridLineThickness = it }
+                            },
                         )
                     }
                     Button(onClick = { fullscreen = true }, modifier = Modifier.fillMaxWidth()) {
@@ -185,6 +213,49 @@ fun PatternScreenRoute(onBackClick: () -> Unit) {
         }
     }
 }
+
+@Composable
+private fun MmValueSetting(
+    label: String,
+    value: Float,
+    query: String,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    onQueryChange: (String) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.width(48.dp),
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.weight(1f),
+            valueRange = valueRange,
+        )
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.width(80.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
+        )
+        Text("mm", style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+private fun String.toMmOrNull(): Float? = trim().replace(',', '.').toFloatOrNull()
+
+private fun formatMm(value: Float): String = "%.2f".format(Locale.US, value).trimEnd('0').trimEnd('.')
 
 @Composable
 private fun PatternColorField(
