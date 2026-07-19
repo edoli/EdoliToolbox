@@ -166,7 +166,7 @@ private data class WorkbenchBackgroundState(
     val foregroundColor: Int = AndroidColor.WHITE,
     val backgroundColor: Int = AndroidColor.BLACK,
     val sizeMm: Float = 10f,
-    val lineThicknessMm: Float = 0.5f,
+    val lineThicknessMm: Float = 0.1f,
 )
 
 private data class WorkbenchObject(
@@ -266,9 +266,9 @@ fun WorkbenchRoute(onBackClick: () -> Unit) {
                 }
             },
             onSelectObject = { selectedObjectId = it },
-            onResizeObject = { id, handle, x, y, canvasAspectRatio ->
+            onResizeObject = { resizedObject ->
                 objects = currentObjects.map { item ->
-                    if (item.id == id) item.resize(handle, x, y, canvasAspectRatio) else item
+                    if (item.id == resizedObject.id) resizedObject else item
                 }
             },
             onMeasurementChange = { measurementState = it },
@@ -578,11 +578,6 @@ private fun ObjectPanel(
             }
             Button(onClick = onAddPhoto) { Text("사진") }
         }
-        Text(
-            "추가한 도형은 서로 다른 색으로 표시되며, 화면에서 드래그해 위치를 옮길 수 있습니다.",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFFD1D5DB),
-        )
     }
 }
 
@@ -602,11 +597,6 @@ private fun MeasurementPanel(
                 )
             }
         }
-        Text(
-            "도구를 선택한 뒤 캔버스에서 드래그하세요. 선택을 다시 누르면 측정 모드가 해제됩니다.",
-            style = MaterialTheme.typography.labelMedium,
-            color = Color(0xFFD1D5DB),
-        )
     }
 }
 
@@ -995,7 +985,7 @@ private fun WorkbenchCanvas(
     measurementState: MeasurementState?,
     onMoveObject: (Long, Float, Float) -> Unit,
     onSelectObject: (Long?) -> Unit,
-    onResizeObject: (Long, ResizeHandle, Float, Float, Float) -> Unit,
+    onResizeObject: (WorkbenchObject) -> Unit,
     onMeasurementChange: (MeasurementState?) -> Unit,
 ) {
     val context = LocalContext.current
@@ -1045,6 +1035,9 @@ private fun WorkbenchCanvas(
                 } else {
                     var draggedObjectId: Long? = null
                     var resizeHandle: ResizeHandle? = null
+                    var resizeBaseObject: WorkbenchObject? = null
+                    var resizeStartTouch: Offset? = null
+                    var resizeStartHandlePosition: Offset? = null
                     detectDragGestures(
                         onDragStart = { touchOffset ->
                             val x = touchOffset.x / size.width.coerceAtLeast(1)
@@ -1057,6 +1050,15 @@ private fun WorkbenchCanvas(
                                 canvasWidth = size.width.toFloat(),
                                 canvasHeight = size.height.toFloat(),
                             )
+                            resizeBaseObject = if (resizeHandle != null) selectedObject else null
+                            resizeStartTouch = if (resizeHandle != null) Offset(x, y) else null
+                            resizeStartHandlePosition = resizeHandle?.let { handle ->
+                                resizeBaseObject?.handlePosition(
+                                    handle = handle,
+                                    canvasAspectRatio = size.width.toFloat() / size.height.coerceAtLeast(1),
+                                    canvasHeight = size.height.toFloat(),
+                                )
+                            }
                             draggedObjectId = when {
                                 resizeHandle != null -> selectedObject?.id
                                 else -> currentObjects.asReversed().firstOrNull { item -> item.contains(x, y) }?.id
@@ -1066,22 +1068,34 @@ private fun WorkbenchCanvas(
                         onDragEnd = {
                             draggedObjectId = null
                             resizeHandle = null
+                            resizeBaseObject = null
+                            resizeStartTouch = null
+                            resizeStartHandlePosition = null
                         },
                         onDragCancel = {
                             draggedObjectId = null
                             resizeHandle = null
+                            resizeBaseObject = null
+                            resizeStartTouch = null
+                            resizeStartHandlePosition = null
                         },
                         onDrag = { change, dragAmount ->
                             val id = draggedObjectId ?: return@detectDragGestures
                             change.consume()
                             val handle = resizeHandle
                             if (handle != null) {
+                                val baseObject = resizeBaseObject ?: return@detectDragGestures
+                                val startTouch = resizeStartTouch ?: return@detectDragGestures
+                                val startHandlePosition = resizeStartHandlePosition ?: return@detectDragGestures
+                                val currentX = change.position.x / size.width.coerceAtLeast(1)
+                                val currentY = change.position.y / size.height.coerceAtLeast(1)
                                 onResizeObject(
-                                    id,
-                                    handle,
-                                    (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f),
-                                    (change.position.y / size.height.coerceAtLeast(1)).coerceIn(0f, 1f),
-                                    size.width.toFloat() / size.height.coerceAtLeast(1),
+                                    baseObject.resize(
+                                        handle = handle,
+                                        targetX = (startHandlePosition.x + currentX - startTouch.x).coerceIn(0f, 1f),
+                                        targetY = (startHandlePosition.y + currentY - startTouch.y).coerceIn(0f, 1f),
+                                        canvasAspectRatio = size.width.toFloat() / size.height.coerceAtLeast(1),
+                                    ),
                                 )
                             } else {
                                 onMoveObject(
@@ -1173,6 +1187,52 @@ private fun WorkbenchObject.handleAt(
             abs(unrotatedTarget.x - handle.x) < touchRadiusX && abs(unrotatedTarget.y - handle.y) < touchRadiusY
         }
         ?.first
+}
+
+private fun WorkbenchObject.handlePosition(
+    handle: ResizeHandle,
+    canvasAspectRatio: Float,
+    canvasHeight: Float,
+): Offset? {
+    val left = centerX - width / 2f
+    val top = centerY - height / 2f
+    val right = centerX + width / 2f
+    val bottom = centerY + height / 2f
+    val localPosition = when (type) {
+        WorkbenchObjectType.Circle -> if (handle == ResizeHandle.CircleRadius) Offset(right, centerY) else null
+        WorkbenchObjectType.Line -> when (handle) {
+            ResizeHandle.LineStart -> lineStart()
+            ResizeHandle.LineEnd -> lineEnd()
+            else -> null
+        }
+
+        WorkbenchObjectType.Text -> if (handle == ResizeHandle.TextSize) Offset(right, bottom) else null
+        WorkbenchObjectType.Photo -> when (handle) {
+            ResizeHandle.TopLeft -> Offset(left, top)
+            ResizeHandle.TopRight -> Offset(right, top)
+            ResizeHandle.BottomRight -> Offset(right, bottom)
+            ResizeHandle.BottomLeft -> Offset(left, bottom)
+            else -> null
+        }
+
+        else -> when (handle) {
+            ResizeHandle.TopLeft -> Offset(left, top)
+            ResizeHandle.Top -> Offset(centerX, top)
+            ResizeHandle.TopRight -> Offset(right, top)
+            ResizeHandle.Right -> Offset(right, centerY)
+            ResizeHandle.BottomRight -> Offset(right, bottom)
+            ResizeHandle.Bottom -> Offset(centerX, bottom)
+            ResizeHandle.BottomLeft -> Offset(left, bottom)
+            ResizeHandle.Left -> Offset(left, centerY)
+            ResizeHandle.Rotate -> Offset(centerX, top - rotationHandleOffsetPx / canvasHeight)
+            else -> null
+        }
+    } ?: return null
+    return if (type == WorkbenchObjectType.Rectangle && rotationDegrees != 0f) {
+        rotateNormalizedPoint(localPosition, Offset(centerX, centerY), rotationDegrees, canvasAspectRatio)
+    } else {
+        localPosition
+    }
 }
 
 private fun WorkbenchObject.resize(
@@ -1287,9 +1347,15 @@ private fun WorkbenchObject.resize(
             bottom = top + minimumSize
         }
     }
+    val localCenter = Offset((left + right) / 2f, (top + bottom) / 2f)
+    val visualCenter = if (type == WorkbenchObjectType.Rectangle && rotationDegrees != 0f) {
+        rotateNormalizedPoint(localCenter, Offset(centerX, centerY), rotationDegrees, canvasAspectRatio)
+    } else {
+        localCenter
+    }
     return copy(
-        centerX = ((left + right) / 2f).coerceIn(0f, 1f),
-        centerY = ((top + bottom) / 2f).coerceIn(0f, 1f),
+        centerX = visualCenter.x.coerceIn(0f, 1f),
+        centerY = visualCenter.y.coerceIn(0f, 1f),
         width = (right - left).coerceAtLeast(minimumSize),
         height = (bottom - top).coerceAtLeast(minimumSize),
     )
