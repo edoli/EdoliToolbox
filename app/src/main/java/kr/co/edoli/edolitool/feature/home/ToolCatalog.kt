@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Pets
+import androidx.compose.material.icons.rounded.Pattern
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
@@ -35,6 +36,13 @@ val toolCatalog = listOf(
         description = "시스템 UI까지 숨기는 전체 단색 화면",
         icon = Icons.Rounded.FormatColorFill,
         tint = Color(0xFF16A34A),
+    ),
+    ToolItem(
+        id = "pattern_screen",
+        name = "패턴 화면",
+        description = "체커보드와 그리드를 전체 화면으로 표시",
+        icon = Icons.Rounded.Pattern,
+        tint = Color(0xFF0891B2),
     ),
     ToolItem(
         id = "clipboard_analyzer",

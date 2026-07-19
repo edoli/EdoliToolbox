@@ -18,6 +18,7 @@ import kr.co.edoli.edolitool.feature.home.HomeRoute
 import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
 import kr.co.edoli.edolitool.feature.home.toolCatalog
 import kr.co.edoli.edolitool.feature.pets.CodexPetsRoute
+import kr.co.edoli.edolitool.feature.pattern.PatternScreenRoute
 import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
 import kr.co.edoli.edolitool.feature.storage.StorageInspectorRoute
@@ -87,6 +88,10 @@ private fun EdoliToolboxApp(startToolId: String?) {
                 )
 
                 "solid_color_screen" -> SolidColorRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
+                "pattern_screen" -> PatternScreenRoute(
                     onBackClick = navController::popBackStack,
                 )
 
