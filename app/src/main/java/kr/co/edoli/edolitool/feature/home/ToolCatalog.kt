@@ -7,7 +7,7 @@ import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Pets
-import androidx.compose.material.icons.rounded.Pattern
+import androidx.compose.material.icons.rounded.DesignServices
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.TextFields
@@ -38,10 +38,10 @@ val toolCatalog = listOf(
         tint = Color(0xFF16A34A),
     ),
     ToolItem(
-        id = "pattern_screen",
-        name = "패턴 화면",
-        description = "체커보드와 그리드를 전체 화면으로 표시",
-        icon = Icons.Rounded.Pattern,
+        id = "workbench",
+        name = "작업대",
+        description = "배경, 도형, 측정 도구를 한 화면에서 구성",
+        icon = Icons.Rounded.DesignServices,
         tint = Color(0xFF0891B2),
     ),
     ToolItem(

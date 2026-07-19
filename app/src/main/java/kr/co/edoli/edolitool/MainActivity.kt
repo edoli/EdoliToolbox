@@ -18,10 +18,10 @@ import kr.co.edoli.edolitool.feature.home.HomeRoute
 import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
 import kr.co.edoli.edolitool.feature.home.toolCatalog
 import kr.co.edoli.edolitool.feature.pets.CodexPetsRoute
-import kr.co.edoli.edolitool.feature.pattern.PatternScreenRoute
 import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
 import kr.co.edoli.edolitool.feature.storage.StorageInspectorRoute
+import kr.co.edoli.edolitool.feature.workbench.WorkbenchRoute
 import kr.co.edoli.edolitool.ui.theme.EdoliToolboxTheme
 
 class MainActivity : ComponentActivity() {
@@ -91,7 +91,7 @@ private fun EdoliToolboxApp(startToolId: String?) {
                     onBackClick = navController::popBackStack,
                 )
 
-                "pattern_screen" -> PatternScreenRoute(
+                "workbench" -> WorkbenchRoute(
                     onBackClick = navController::popBackStack,
                 )
 
