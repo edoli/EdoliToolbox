@@ -1,17 +1,14 @@
 package kr.co.edoli.edolitool.feature.home
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Calculate
-import androidx.compose.material.icons.rounded.ContentPaste
-import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.Apps
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.DesignServices
+import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Pets
-import androidx.compose.material.icons.rounded.DesignServices
-import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material.icons.rounded.TextFields
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.ui.graphics.Color
 import kr.co.edoli.edolitool.model.ToolItem
 
@@ -64,5 +61,12 @@ val toolCatalog = listOf(
         description = "홈 화면에서 최근 사용 앱을 바로 실행",
         icon = Icons.Rounded.Apps,
         tint = Color(0xFFDC2626),
+    ),
+    ToolItem(
+        id = "speedometer",
+        name = "현재 속도",
+        description = "위치 정보로 이동 속도를 실시간 확인",
+        icon = Icons.Rounded.Speed,
+        tint = Color(0xFFEA580C),
     ),
 )

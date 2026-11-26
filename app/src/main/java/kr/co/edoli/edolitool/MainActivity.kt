@@ -20,6 +20,7 @@ import kr.co.edoli.edolitool.feature.home.toolCatalog
 import kr.co.edoli.edolitool.feature.pets.CodexPetsRoute
 import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
+import kr.co.edoli.edolitool.feature.speed.SpeedometerRoute
 import kr.co.edoli.edolitool.feature.storage.StorageInspectorRoute
 import kr.co.edoli.edolitool.feature.workbench.WorkbenchRoute
 import kr.co.edoli.edolitool.ui.theme.EdoliToolboxTheme
@@ -104,6 +105,10 @@ private fun EdoliToolboxApp(startToolId: String?) {
                 )
 
                 "recent_apps_widget" -> RecentAppsWidgetRoute(
+                    onBackClick = navController::popBackStack,
+                )
+
+                "speedometer" -> SpeedometerRoute(
                     onBackClick = navController::popBackStack,
                 )
 
