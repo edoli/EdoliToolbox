@@ -10,6 +10,7 @@ import androidx.compose.material.icons.rounded.Pets
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.SatelliteAlt
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material.icons.rounded.Straighten
 import androidx.compose.ui.graphics.Color
 import kr.co.edoli.edolitool.model.ToolItem
 
@@ -76,5 +77,12 @@ val toolCatalog = listOf(
         description = "연결 정보, 주변 Wi-Fi와 BLE, 로컬 기기 확인",
         icon = Icons.Rounded.NetworkCheck,
         tint = Color(0xFF4F46E5),
+    ),
+    ToolItem(
+        id = "physical_measurements",
+        name = "물리 측정",
+        description = "수평계, 각도기, 소음측정기, 화면 자와 센서 도구",
+        icon = Icons.Rounded.Straighten,
+        tint = Color(0xFF0F766E),
     ),
 )

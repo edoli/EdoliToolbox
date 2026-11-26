@@ -22,6 +22,8 @@ import kr.co.edoli.edolitool.feature.nearby.WifiAnalyzerRoute
 import kr.co.edoli.edolitool.feature.network.NetworkAnalyzerRoute
 import kr.co.edoli.edolitool.feature.network.NetworkScannerRoute
 import kr.co.edoli.edolitool.feature.pets.CodexPetsRoute
+import kr.co.edoli.edolitool.feature.physical.PhysicalMeasurementsRoute
+import kr.co.edoli.edolitool.feature.physical.PhysicalToolRoute
 import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
 import kr.co.edoli.edolitool.feature.speed.SpeedometerRoute
@@ -116,6 +118,11 @@ private fun EdoliToolboxApp(startToolId: String?) {
                     onBackClick = navController::popBackStack,
                 )
 
+                "physical_measurements" -> PhysicalMeasurementsRoute(
+                    onBackClick = navController::popBackStack,
+                    onOpenTool = { id -> navController.navigate("measurement/$id") },
+                )
+
                 "network_analyzer" -> NetworkAnalyzerRoute(
                     onBackClick = navController::popBackStack,
                     onOpenTool = { id -> navController.navigate("tool/$id") },
@@ -140,6 +147,16 @@ private fun EdoliToolboxApp(startToolId: String?) {
                     )
                 }
             }
+        }
+
+        composable(
+            route = "measurement/{measurementId}",
+            arguments = listOf(navArgument("measurementId") { type = NavType.StringType }),
+        ) { backStackEntry ->
+            PhysicalToolRoute(
+                toolId = backStackEntry.arguments?.getString("measurementId").orEmpty(),
+                onBackClick = navController::popBackStack,
+            )
         }
 
         composable("camera_color_picker/camera") {
