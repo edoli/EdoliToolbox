@@ -5,6 +5,7 @@ import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.DesignServices
 import androidx.compose.material.icons.rounded.FormatColorFill
+import androidx.compose.material.icons.rounded.NetworkCheck
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Pets
 import androidx.compose.material.icons.rounded.Speed
@@ -68,5 +69,12 @@ val toolCatalog = listOf(
         description = "위치 정보로 이동 속도를 실시간 확인",
         icon = Icons.Rounded.Speed,
         tint = Color(0xFFEA580C),
+    ),
+    ToolItem(
+        id = "network_analyzer",
+        name = "네트워크 분석",
+        description = "연결 정보, 주변 Wi-Fi와 BLE, 로컬 기기 확인",
+        icon = Icons.Rounded.NetworkCheck,
+        tint = Color(0xFF4F46E5),
     ),
 )

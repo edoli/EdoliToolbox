@@ -17,6 +17,10 @@ import kr.co.edoli.edolitool.feature.colorpicker.ImageColorPickerFullscreenRoute
 import kr.co.edoli.edolitool.feature.home.HomeRoute
 import kr.co.edoli.edolitool.feature.home.ToolDetailRoute
 import kr.co.edoli.edolitool.feature.home.toolCatalog
+import kr.co.edoli.edolitool.feature.nearby.BluetoothScannerRoute
+import kr.co.edoli.edolitool.feature.nearby.WifiAnalyzerRoute
+import kr.co.edoli.edolitool.feature.network.NetworkAnalyzerRoute
+import kr.co.edoli.edolitool.feature.network.NetworkScannerRoute
 import kr.co.edoli.edolitool.feature.pets.CodexPetsRoute
 import kr.co.edoli.edolitool.feature.recentapps.RecentAppsWidgetRoute
 import kr.co.edoli.edolitool.feature.solidcolor.SolidColorRoute
@@ -111,6 +115,22 @@ private fun EdoliToolboxApp(startToolId: String?) {
                 "speedometer" -> SpeedometerRoute(
                     onBackClick = navController::popBackStack,
                 )
+
+                "network_analyzer" -> NetworkAnalyzerRoute(
+                    onBackClick = navController::popBackStack,
+                    onOpenTool = { id -> navController.navigate("tool/$id") },
+                )
+
+                "wifi_analyzer" -> WifiAnalyzerRoute(onBackClick = navController::popBackStack)
+
+                "bluetooth_scanner" -> BluetoothScannerRoute(onBackClick = navController::popBackStack)
+
+                "ble_explorer" -> BluetoothScannerRoute(
+                    onBackClick = navController::popBackStack,
+                    explorer = true,
+                )
+
+                "network_scanner" -> NetworkScannerRoute(onBackClick = navController::popBackStack)
 
                 else -> {
                     val tool = toolCatalog.firstOrNull { it.id == toolId }
