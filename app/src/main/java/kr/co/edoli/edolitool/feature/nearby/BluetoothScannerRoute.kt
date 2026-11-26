@@ -10,12 +10,6 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.os.Build
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -28,27 +22,27 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import kr.co.edoli.edolitool.ui.component.HistoryPlot
+import kr.co.edoli.edolitool.ui.component.PlotBar
+import kr.co.edoli.edolitool.ui.component.TimeLine
+import kr.co.edoli.edolitool.ui.component.TimePoint
+import kr.co.edoli.edolitool.ui.component.rssiAxis
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.Locale
-
-private data class RssiSample(val elapsedMillis: Long, val rssi: Int)
 
 private data class BleReading(
     val device: BluetoothDevice,
     val name: String,
     val rssi: Int,
     val connectable: Boolean,
-    val samples: List<RssiSample>,
+    val samples: List<TimePoint>,
 )
 
 @SuppressLint("MissingPermission")
@@ -94,7 +88,7 @@ fun BluetoothScannerRoute(onBackClick: () -> Unit, explorer: Boolean = false) {
                         val address = result.device.address
                         val previous = devices[address]
                         val samples = previous?.samples.orEmpty()
-                        val sample = RssiSample(result.timestampNanos / 1_000_000, result.rssi)
+                        val sample = TimePoint(result.timestampNanos / 1_000_000, result.rssi.toFloat())
                         if (samples.lastOrNull()?.let { sample.elapsedMillis - it.elapsedMillis < 250 } == true) {
                             return@collect
                         }
@@ -167,6 +161,27 @@ fun BluetoothScannerRoute(onBackClick: () -> Unit, explorer: Boolean = false) {
                 }
             }
             val orderedDevices = devices.entries.sortedByDescending { it.value.rssi }
+            if (orderedDevices.isNotEmpty() && !explorer) {
+                item {
+                    NearbyToolCard {
+                        Text("기기별 신호 세기", style = MaterialTheme.typography.titleMedium)
+                        if (orderedDevices.size > 6) {
+                            Text("신호가 강한 6개 기기", style = MaterialTheme.typography.bodySmall)
+                        }
+                        val shown = orderedDevices.take(6)
+                        val signalRange = rssiAxis(shown.map { it.value.rssi.toFloat() }).range
+                        shown.forEach { (address, reading) ->
+                            val signal = (reading.rssi - signalRange.start) / (signalRange.endInclusive - signalRange.start)
+                            PlotBar(
+                                label = "${reading.name} · ${address.takeLast(5)}",
+                                value = "${reading.rssi} dBm",
+                                fraction = signal,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
             items(orderedDevices, key = { it.key }) { (address, reading) ->
                 NearbyToolCard {
                     Text(reading.name, style = MaterialTheme.typography.titleMedium)
@@ -218,40 +233,19 @@ private fun BluetoothLeScanner.results() = callbackFlow<ScanResult> {
 }
 
 @Composable
-private fun RssiGraph(samples: List<RssiSample>) {
+private fun RssiGraph(samples: List<TimePoint>) {
     if (samples.size < 2) {
         Text("그래프를 표시하려면 RSSI 표본이 두 개 이상 필요합니다.")
         return
     }
-    val start = samples.first().elapsedMillis
-    val duration = (samples.last().elapsedMillis - start).coerceAtLeast(1)
-    val signalColor = MaterialTheme.colorScheme.primary
-    val gridColor = MaterialTheme.colorScheme.outlineVariant
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(modifier = Modifier.height(100.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            for (tick in listOf("−20", "−65", "−110")) {
-                Text(tick, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-        Canvas(modifier = Modifier.weight(1f).height(100.dp)) {
-            fun position(sample: RssiSample): Offset {
-                val x = (sample.elapsedMillis - start).toFloat() / duration * size.width
-                val y = (-20 - sample.rssi.coerceIn(-110, -20)) / 90f * size.height
-                return Offset(x, y)
-            }
-
-            for (fraction in listOf(0f, 0.5f, 1f)) {
-                val y = size.height * fraction
-                drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
-            }
-            samples.zipWithNext().forEach { (previous, current) ->
-                drawLine(signalColor, position(previous), position(current), strokeWidth = 2.dp.toPx())
-            }
-        }
-    }
-    val seconds = String.format(Locale.KOREA, "%.1f", duration / 1_000.0)
+    HistoryPlot(
+        lines = listOf(TimeLine(MaterialTheme.colorScheme.primary, samples)),
+        yAxis = rssiAxis(samples.map { it.value }),
+        description = "선택한 BLE 기기의 시간별 신호 세기, 단위 dBm",
+        height = 144.dp,
+    )
     Text(
-        "시간 ${seconds}초 · 신호 ${samples.minOf { it.rssi }} ~ ${samples.maxOf { it.rssi }} dBm",
+        "신호 ${samples.minOf { it.value }.toInt()} ~ ${samples.maxOf { it.value }.toInt()} dBm",
         style = MaterialTheme.typography.bodySmall,
     )
 }

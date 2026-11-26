@@ -55,6 +55,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kr.co.edoli.edolitool.model.ToolItem
+import kr.co.edoli.edolitool.ui.component.HistoryPlot
+import kr.co.edoli.edolitool.ui.component.PlotAxis
+import kr.co.edoli.edolitool.ui.component.PlotLegend
+import kr.co.edoli.edolitool.ui.component.PlotTick
+import kr.co.edoli.edolitool.ui.component.TimeLine
+import kr.co.edoli.edolitool.ui.component.TimePoint
+import kr.co.edoli.edolitool.ui.component.networkChartColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -112,7 +119,13 @@ private data class TrafficSample(
     val elapsedMillis: Long,
 )
 
-private data class TrafficRates(val receiveBytesPerSecond: Long?, val sendBytesPerSecond: Long?)
+private const val TRAFFIC_WINDOW_MILLIS = 30_000L
+
+private data class TrafficRates(
+    val elapsedMillis: Long,
+    val receiveBytesPerSecond: Long?,
+    val sendBytesPerSecond: Long?,
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,7 +136,7 @@ fun NetworkAnalyzerRoute(onBackClick: () -> Unit, onOpenTool: (String) -> Unit) 
         context.getSystemService(ConnectivityManager::class.java)
     }
     var connection by remember { mutableStateOf<NetworkConnection?>(null) }
-    var trafficRates by remember { mutableStateOf<TrafficRates?>(null) }
+    var trafficHistory by remember { mutableStateOf(emptyList<TrafficRates>()) }
 
     LaunchedEffect(lifecycle, connectivityManager) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -158,16 +171,18 @@ fun NetworkAnalyzerRoute(onBackClick: () -> Unit, onOpenTool: (String) -> Unit) 
                     delay(1_000)
                     val current = readTrafficSample()
                     val elapsedMillis = current.elapsedMillis - previous.elapsedMillis
-                    trafficRates = TrafficRates(
+                    val rates = TrafficRates(
+                        elapsedMillis = current.elapsedMillis,
                         receiveBytesPerSecond = bytesPerSecond(current.receivedBytes, previous.receivedBytes, elapsedMillis),
                         sendBytesPerSecond = bytesPerSecond(current.sentBytes, previous.sentBytes, elapsedMillis),
                     )
+                    trafficHistory = (trafficHistory + rates).dropWhile { current.elapsedMillis - it.elapsedMillis > TRAFFIC_WINDOW_MILLIS }
                     previous = current
                 }
             } finally {
                 connectivityManager.unregisterNetworkCallback(callback)
                 connection = null
-                trafficRates = null
+                trafficHistory = emptyList()
             }
         }
     }
@@ -198,7 +213,7 @@ fun NetworkAnalyzerRoute(onBackClick: () -> Unit, onOpenTool: (String) -> Unit) 
         ) {
             ConnectionCard(connection)
             NetworkToolsCard(onOpenTool)
-            TrafficCard(trafficRates)
+            TrafficCard(trafficHistory)
             connection?.linkProperties?.let { LinkDetailsCard(it) }
         }
     }
@@ -252,8 +267,10 @@ private fun ConnectionCard(connection: NetworkConnection?) {
 }
 
 @Composable
-private fun TrafficCard(rates: TrafficRates?) {
+private fun TrafficCard(history: List<TrafficRates>) {
     val context = LocalContext.current
+    val rates = history.lastOrNull()
+    val palette = networkChartColors()
 
     fun formatRate(bytes: Long?): String = when {
         rates == null -> "측정 중"
@@ -263,8 +280,34 @@ private fun TrafficCard(rates: TrafficRates?) {
 
     NetworkCard("기기 전체 실시간 트래픽") {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            NetworkField("받기", formatRate(rates?.receiveBytesPerSecond), Modifier.weight(1f))
-            NetworkField("보내기", formatRate(rates?.sendBytesPerSecond), Modifier.weight(1f))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PlotLegend("받기", palette[0])
+                Text(formatRate(rates?.receiveBytesPerSecond), style = MaterialTheme.typography.bodyLarge)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                PlotLegend("보내기", palette[1])
+                Text(formatRate(rates?.sendBytesPerSecond), style = MaterialTheme.typography.bodyLarge)
+            }
+        }
+        val receive = history.mapNotNull { sample ->
+            sample.receiveBytesPerSecond?.let { TimePoint(sample.elapsedMillis, it.toFloat()) }
+        }
+        val send = history.mapNotNull { sample ->
+            sample.sendBytesPerSecond?.let { TimePoint(sample.elapsedMillis, it.toFloat()) }
+        }
+        if (receive.isNotEmpty() || send.isNotEmpty()) {
+            val maxRate = maxOf(1_000f, (receive + send).maxOf { it.value })
+            val yAxis = PlotAxis(
+                range = 0f..maxRate,
+                ticks = listOf(0f, maxRate / 2, maxRate).map { PlotTick(it, formatRate(it.toLong())) },
+            )
+            Text("최근 30초", style = MaterialTheme.typography.labelLarge)
+            HistoryPlot(
+                lines = listOf(TimeLine(palette[0], receive), TimeLine(palette[1], send)),
+                yAxis = yAxis,
+                description = "최근 30초의 기기 전체 수신량과 송신량",
+                windowMillis = TRAFFIC_WINDOW_MILLIS,
+            )
         }
     }
 }

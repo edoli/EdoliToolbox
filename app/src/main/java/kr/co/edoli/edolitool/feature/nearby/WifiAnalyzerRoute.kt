@@ -12,22 +12,45 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.SystemClock
 import android.text.format.DateFormat
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import androidx.lifecycle.compose.LifecycleStartEffect
+import kr.co.edoli.edolitool.ui.component.HistoryPlot
+import kr.co.edoli.edolitool.ui.component.NetworkPlot
+import kr.co.edoli.edolitool.ui.component.PlotAxis
+import kr.co.edoli.edolitool.ui.component.PlotLegend
+import kr.co.edoli.edolitool.ui.component.PlotLine
+import kr.co.edoli.edolitool.ui.component.PlotTick
+import kr.co.edoli.edolitool.ui.component.TimeLine
+import kr.co.edoli.edolitool.ui.component.TimePoint
+import kr.co.edoli.edolitool.ui.component.networkChartColors
+import kr.co.edoli.edolitool.ui.component.rssiAxis
 import kotlinx.coroutines.delay
 import java.util.Date
+
+private const val WIFI_HISTORY_MILLIS = 15 * 60_000L
+private const val WIFI_PLOTTED_AP_COUNT = 6
 
 @SuppressLint("MissingPermission")
 @Suppress("DEPRECATION")
@@ -38,6 +61,8 @@ fun WifiAnalyzerRoute(onBackClick: () -> Unit) {
     val location = remember(context) { context.getSystemService(LocationManager::class.java) }
     val (granted, requestPermissions) = rememberToolPermissions(listOf(Manifest.permission.ACCESS_FINE_LOCATION))
     var results by remember { mutableStateOf(emptyList<ScanResult>()) }
+    val history = remember { mutableStateMapOf<String, List<TimePoint>>() }
+    var selectedBand by remember { mutableStateOf<String?>(null) }
     var scanning by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("주변 액세스 포인트를 검색할 수 있습니다.") }
 
@@ -50,15 +75,34 @@ fun WifiAnalyzerRoute(onBackClick: () -> Unit) {
         }
         if (unavailable != null) {
             results = emptyList()
+            history.clear()
             status = unavailable
             return false
         }
         return try {
-            results = checkNotNull(wifi).scanResults.distinctBy { it.BSSID to it.frequency }.sortedByDescending { it.level }
+            results = checkNotNull(wifi).scanResults.distinctBy { it.apKey }.sortedByDescending { it.level }
+            if (results.none { wifiBand(it.frequency) == selectedBand }) {
+                selectedBand = results.firstOrNull()?.let { wifiBand(it.frequency) }
+            }
+            val cutoff = SystemClock.elapsedRealtime() - WIFI_HISTORY_MILLIS
+            history.entries.toList().forEach { (key, points) ->
+                val recent = points.filter { it.elapsedMillis >= cutoff }
+                if (recent.isEmpty()) history.remove(key) else history[key] = recent
+            }
+            results.forEach { accessPoint ->
+                val elapsedMillis = accessPoint.timestamp / 1_000
+                val previous = history[accessPoint.apKey].orEmpty()
+                if (elapsedMillis > 0 && elapsedMillis >= cutoff &&
+                    elapsedMillis > (previous.lastOrNull()?.elapsedMillis ?: 0)
+                ) {
+                    history[accessPoint.apKey] = (previous + TimePoint(elapsedMillis, accessPoint.level.toFloat())).takeLast(48)
+                }
+            }
             status = if (results.isEmpty()) "주변 액세스 포인트가 아직 감지되지 않았습니다." else "액세스 포인트 ${results.size}개"
             true
         } catch (_: SecurityException) {
             results = emptyList()
+            history.clear()
             status = "Wi-Fi 결과를 읽으려면 정확한 위치를 허용해 주세요."
             false
         }
@@ -95,6 +139,14 @@ fun WifiAnalyzerRoute(onBackClick: () -> Unit) {
         }
     }
 
+    LaunchedEffect(granted) {
+        if (!granted) history.clear()
+    }
+
+    val bands = results.groupBy { wifiBand(it.frequency) }.toSortedMap()
+    val shownBand = selectedBand?.takeIf(bands::containsKey) ?: bands.keys.firstOrNull()
+    val shownAccessPoints = shownBand?.let { bands[it] }.orEmpty()
+
     NearbyToolScreen("Wi-Fi 분석", onBackClick) {
         if (!granted) {
             item {
@@ -126,21 +178,12 @@ fun WifiAnalyzerRoute(onBackClick: () -> Unit) {
                     }
                 }
             }
-            if (results.isNotEmpty()) {
+            if (shownBand != null) {
                 item {
-                    NearbyToolCard {
-                        Text("채널별 AP 수", style = MaterialTheme.typography.titleMedium)
-                        results.groupBy { wifiBand(it.frequency) }.toSortedMap().forEach { (band, accessPoints) ->
-                            val counts = accessPoints.groupingBy { it.frequency }.eachCount().toSortedMap()
-                            val channels = counts.entries.joinToString(" · ") { (frequency, count) ->
-                                "${wifiChannel(frequency) ?: "${frequency} MHz"} (${count}개)"
-                            }
-                            Text("${band}  ${channels}")
-                        }
-                    }
+                    WifiGraphs(shownBand, bands.keys, shownAccessPoints, history) { selectedBand = it }
                 }
             }
-            items(results, key = { "${it.BSSID}/${it.frequency}" }) { accessPoint ->
+            items(shownAccessPoints, key = { it.apKey }) { accessPoint ->
                 NearbyToolCard {
                     Text(wifiName(accessPoint), style = MaterialTheme.typography.titleMedium)
                     Text(accessPoint.BSSID.orEmpty())
@@ -151,6 +194,122 @@ fun WifiAnalyzerRoute(onBackClick: () -> Unit) {
             }
         }
     }
+}
+
+private val ScanResult.apKey: String
+    get() = "$BSSID/$frequency"
+
+@Composable
+private fun WifiGraphs(
+    band: String,
+    bands: Set<String>,
+    accessPoints: List<ScanResult>,
+    history: Map<String, List<TimePoint>>,
+    onBandSelected: (String) -> Unit,
+) {
+    val palette = networkChartColors()
+    val plotted = accessPoints.take(WIFI_PLOTTED_AP_COUNT).sortedBy { it.apKey }
+    val channelAxis = rssiAxis(plotted.map { it.level.toFloat() })
+    val channelLines = plotted.flatMapIndexed { index, accessPoint ->
+        accessPoint.channelFootprints(channelAxis.range.start).map { PlotLine(palette[index], it) }
+    }
+    val signalLines = plotted.mapIndexed { index, accessPoint ->
+        TimeLine(palette[index], history[accessPoint.apKey].orEmpty())
+    }
+    val names = plotted.map(::wifiName)
+
+    NearbyToolCard {
+        Text("채널 분포", style = MaterialTheme.typography.titleMedium)
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            bands.forEach { item ->
+                FilterChip(selected = item == band, onClick = { onBandSelected(item) }, label = { Text(item) })
+            }
+        }
+        val count = accessPoints.size
+        Text(
+            text = if (count > plotted.size) "${count}개 중 신호가 강한 ${plotted.size}개 · dBm" else "AP ${count}개 · dBm",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        NetworkPlot(
+            lines = channelLines,
+            xAxis = wifiFrequencyAxis(band, plotted, channelLines),
+            yAxis = channelAxis,
+            description = "$band 채널 분포, 채널 폭과 신호 세기 비교",
+            shaded = true,
+        )
+        plotted.indices.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                row.forEach { index ->
+                    val accessPoint = plotted[index]
+                    val name = names[index]
+                    val suffix = if (names.count { it == name } > 1) " ${accessPoint.BSSID?.takeLast(5).orEmpty()}" else ""
+                    PlotLegend("$name$suffix", palette[index], Modifier.weight(1f))
+                }
+            }
+        }
+        val counts = accessPoints.groupingBy { it.frequency }.eachCount().toSortedMap()
+        val channelCounts = counts.entries.joinToString(" · ") { (frequency, count) ->
+            val label = wifiChannel(frequency)?.let { "채널 $it" } ?: "$frequency MHz"
+            "$label (${count}개)"
+        }
+        Text(channelCounts, style = MaterialTheme.typography.bodySmall)
+
+        HorizontalDivider()
+        Text("시간별 신호 세기 (dBm)", style = MaterialTheme.typography.titleMedium)
+        if (signalLines.any { it.samples.size >= 2 }) {
+            HistoryPlot(
+                lines = signalLines,
+                yAxis = rssiAxis(signalLines.flatMap { line -> line.samples.map { it.value } }),
+                description = "선택한 대역의 시간별 AP 신호 세기, 단위 dBm",
+                showSamples = true,
+            )
+            Text("점은 각 AP가 감지된 시점입니다.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            Text("새 검색 결과가 쌓이면 신호 세기 변화를 표시합니다.", style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+private fun ScanResult.channelFootprints(floor: Float): List<List<Offset>> {
+    val width = when (channelWidth) {
+        ScanResult.CHANNEL_WIDTH_40MHZ -> 40f
+        ScanResult.CHANNEL_WIDTH_80MHZ, ScanResult.CHANNEL_WIDTH_80MHZ_PLUS_MHZ -> 80f
+        ScanResult.CHANNEL_WIDTH_160MHZ -> 160f
+        ScanResult.CHANNEL_WIDTH_320MHZ -> 320f
+        else -> 20f
+    }
+    val center = if (width > 20f && centerFreq0 > 0) centerFreq0 else frequency
+    val centers = if (channelWidth == ScanResult.CHANNEL_WIDTH_80MHZ_PLUS_MHZ && centerFreq1 > 0) {
+        listOf(center, centerFreq1)
+    } else {
+        listOf(center)
+    }
+    return centers.map {
+        listOf(
+            Offset(it - width / 2, floor),
+            Offset(it - width * 0.32f, level.toFloat()),
+            Offset(it + width * 0.32f, level.toFloat()),
+            Offset(it + width / 2, floor),
+        )
+    }
+}
+
+private fun wifiFrequencyAxis(band: String, plotted: List<ScanResult>, lines: List<PlotLine>): PlotAxis {
+    val frequencies = if (band == "2.4 GHz") {
+        listOf(2412, 2427, 2442, 2457, 2472) + plotted.map { it.frequency }
+    } else {
+        plotted.map { it.frequency }
+    }.distinct().sorted()
+    val points = lines.flatMap { it.points }
+    val first = minOf(frequencies.first() - 12f, points.minOf { it.x })
+    val last = maxOf(frequencies.last() + 12f, points.maxOf { it.x })
+    val ticks = frequencies.map { frequency ->
+        PlotTick(frequency.toFloat(), wifiChannel(frequency)?.toString() ?: "$frequency MHz")
+    }
+    return PlotAxis(first..last, ticks)
 }
 
 @Suppress("DEPRECATION")

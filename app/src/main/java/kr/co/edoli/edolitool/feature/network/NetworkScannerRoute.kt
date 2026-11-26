@@ -28,6 +28,7 @@ import kr.co.edoli.edolitool.feature.nearby.NearbyPermissionCard
 import kr.co.edoli.edolitool.feature.nearby.NearbyToolCard
 import kr.co.edoli.edolitool.feature.nearby.NearbyToolScreen
 import kr.co.edoli.edolitool.feature.nearby.rememberToolPermissions
+import kr.co.edoli.edolitool.ui.component.PlotBar
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.merge
@@ -37,15 +38,15 @@ import java.net.InetAddress
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private val discoveryTypes = listOf(
-    "_http._tcp",
-    "_https._tcp",
-    "_ipp._tcp",
-    "_ipps._tcp",
-    "_smb._tcp",
-    "_googlecast._tcp",
-    "_airplay._tcp",
-    "_ssh._tcp",
+private val discoveryTypes = mapOf(
+    "_http._tcp" to "웹 (HTTP)",
+    "_https._tcp" to "웹 (HTTPS)",
+    "_ipp._tcp" to "프린터 (IPP)",
+    "_ipps._tcp" to "프린터 (IPPS)",
+    "_smb._tcp" to "파일 공유 (SMB)",
+    "_googlecast._tcp" to "Google Cast",
+    "_airplay._tcp" to "AirPlay",
+    "_ssh._tcp" to "SSH",
 )
 
 private data class ServiceKey(val type: String, val name: String)
@@ -92,7 +93,7 @@ fun NetworkScannerRoute(onBackClick: () -> Unit) {
             try {
                 multicastLock?.acquire()
                 withTimeoutOrNull(16_000) {
-                    discoveryTypes.map { manager.discovery(it) }.merge().collect { event ->
+                    discoveryTypes.keys.map { manager.discovery(it) }.merge().collect { event ->
                         when (event) {
                             is DiscoveryEvent.Found -> {
                                 if (!services.containsKey(event.key)) {
@@ -160,6 +161,24 @@ fun NetworkScannerRoute(onBackClick: () -> Unit) {
             }
 
             val devices = services.values.groupBy { it.addresses.first() }.toSortedMap()
+            if (devices.isNotEmpty()) {
+                item {
+                    val types = devices.values
+                        .flatMap { entries -> entries.map { it.key.type }.distinct() }
+                        .groupingBy { it }.eachCount()
+                    NearbyToolCard {
+                        Text("서비스 유형별 기기 수", style = MaterialTheme.typography.titleMedium)
+                        types.entries.sortedByDescending { it.value }.forEach { (type, count) ->
+                            PlotBar(
+                                label = discoveryTypes.getValue(type),
+                                value = "${count}대",
+                                fraction = count.toFloat() / devices.size,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
             items(devices.entries.toList(), key = { it.key }) { (_, deviceServices) ->
                 NearbyToolCard {
                     val sorted = deviceServices.sortedWith(compareBy({ it.key.name }, { it.key.type }))
