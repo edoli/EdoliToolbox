@@ -6,9 +6,9 @@ import androidx.compose.material.icons.rounded.ContentPaste
 import androidx.compose.material.icons.rounded.DesignServices
 import androidx.compose.material.icons.rounded.FormatColorFill
 import androidx.compose.material.icons.rounded.NetworkCheck
-import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Pets
-import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.SatelliteAlt
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.ui.graphics.Color
 import kr.co.edoli.edolitool.model.ToolItem
@@ -65,9 +65,9 @@ val toolCatalog = listOf(
     ),
     ToolItem(
         id = "speedometer",
-        name = "현재 속도",
+        name = "GPS 속도계",
         description = "위치 정보로 이동 속도를 실시간 확인",
-        icon = Icons.Rounded.Speed,
+        icon = Icons.Rounded.SatelliteAlt,
         tint = Color(0xFFEA580C),
     ),
     ToolItem(

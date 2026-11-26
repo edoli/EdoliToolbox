@@ -258,7 +258,7 @@ fun SpeedometerRoute(onBackClick: () -> Unit) {
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
             TopAppBar(
-                title = { Text("현재 속도") },
+                title = { Text("GPS 속도계") },
                 navigationIcon = {
                     IconButton(onClick = onBackClick) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "뒤로")
