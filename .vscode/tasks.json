@@ -15,6 +15,22 @@
                 "cwd": "${workspaceFolder}"
             },
             "problemMatcher": []
+        },
+        {
+            "label": "Run Edoli Toolbox without debugger",
+            "type": "process",
+            "command": "node",
+            "args": [
+                "${workspaceFolder}/.vscode/run-android.mjs"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "EDOL_ANDROID_DEVICE": "${command:PickAndroidDevice}"
+                }
+            },
+            "dependsOn": "Build Android debug APK",
+            "problemMatcher": []
         }
     ]
 }
